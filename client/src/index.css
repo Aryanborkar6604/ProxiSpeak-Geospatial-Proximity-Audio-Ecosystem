@@ -1,0 +1,4 @@
+html { min-width: 320px; min-height: 100%; background: #f8f8f5; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+#root { min-height: 100vh; }
+::selection { background: #d6e7da; color: #233e31; }
