@@ -11,8 +11,8 @@ const positionSchema = new mongoose.Schema({
   isMuted: { type: Boolean, default: false }
 }, { timestamps: true });
 
-// 2d index on location for geospatial queries
-positionSchema.index({ location: '2d' });
+// 2d index on location for geospatial queries with pixel bounds (0-2000px)
+positionSchema.index({ location: '2d' }, { min: -5000, max: 5000 });
 
 module.exports = mongoose.model('Position', positionSchema);
 

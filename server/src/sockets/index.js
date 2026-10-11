@@ -1,6 +1,7 @@
 const { socketAuthMiddleware } = require('./middlewares');
 const officeService = require('../services/office.service');
 const positionService = require('../services/position.service');
+const { cleanupUser } = require('../services/proximity.service');
 
 function socketHandler(io) {
   io.use(socketAuthMiddleware);
@@ -18,9 +19,18 @@ function socketHandler(io) {
 
         socket.join(officeId);
         socket.data.officeId = officeId;
+
+        // Check if user already had a saved position or spawn at default
+        const existingPos = await positionService.getPosition(userId, officeId);
+        const spawnX = existingPos?.location?.[0] ?? (150 + Math.floor(Math.random() * 80));
+        const spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
         
-        const office = await officeService.getOffice(officeId);
-        const onlinePositions = await positionService.getOnlineUsers(officeId);
+        // Execute in parallel for instant response
+        const [office, onlinePositions] = await Promise.all([
+          officeService.getOffice(officeId),
+          positionService.getOnlineUsers(officeId),
+          positionService.updatePosition(userId, officeId, spawnX, spawnY),
+        ]);
         
         socket.emit('office:state', {
           officeId: office.officeId,
@@ -30,8 +40,11 @@ function socketHandler(io) {
           zones: office.zones,
           users: onlinePositions,
         });
+
+        // Broadcast to everyone else in the office so they see the new avatar instantly
+        socket.to(officeId).emit('player:moved', { userId, x: spawnX, y: spawnY });
         
-        console.log(`User ${userId} joined office ${officeId}`);
+        console.log(`User ${userId} joined office ${officeId} at [${spawnX}, ${spawnY}]`);
       } catch (err) {
         console.error('office:join error', err);
       }
@@ -43,8 +56,7 @@ function socketHandler(io) {
         const officeId = socket.data.officeId;
         if (!officeId || typeof x !== 'number' || typeof y !== 'number') return;
         
-        // Basic boundary validation
-        // In real impl, we should fetch office bounds
+        // Boundary validation
         const validX = Math.max(0, Math.min(x, 1000));
         const validY = Math.max(0, Math.min(y, 700));
 
@@ -57,8 +69,30 @@ function socketHandler(io) {
       }
     });
 
+    // Voice Activity Detection (VAD) signaling
+    socket.on('player:speaking', (payload) => {
+      const officeId = socket.data.officeId;
+      if (officeId) {
+        socket.to(officeId).emit('player:speaking', {
+          userId,
+          isSpeaking: Boolean(payload?.isSpeaking),
+        });
+      }
+    });
+
+    // Mute status signaling
+    socket.on('player:mute', (payload) => {
+      const officeId = socket.data.officeId;
+      if (officeId) {
+        socket.to(officeId).emit('player:muted', {
+          userId,
+          isMuted: Boolean(payload?.isMuted),
+        });
+      }
+    });
+
     socket.on('webrtc:offer', (payload) => {
-      // SEC-17: Ensure the recipient is in range (simplified for MVP scaffold)
+      // SEC-17: Relay offer to peer personal room
       io.to(`user_${payload.toUserId}`).emit('webrtc:offer', { fromUserId: userId, sdp: payload.sdp });
     });
 
@@ -73,6 +107,7 @@ function socketHandler(io) {
     socket.on('disconnect', async () => {
       console.log(`User disconnected: ${userId}`);
       if (userId) {
+        cleanupUser(userId);
         await positionService.markOffline(userId);
         if (socket.data.officeId) {
           io.to(socket.data.officeId).emit('player:left', { userId });

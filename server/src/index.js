@@ -15,12 +15,29 @@ async function startServer() {
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: {
-      origin: env.CLIENT_URL,
+      origin: true,
+      credentials: true,
       methods: ["GET", "POST"]
     }
   });
 
-  app.use(cors({ origin: env.CLIENT_URL }));
+  // Phase 3: Redis Pub/Sub for horizontal multi-instance scaling
+  if (process.env.REDIS_URL) {
+    try {
+      const { createAdapter } = require('@socket.io/redis-adapter');
+      const Redis = require('ioredis');
+      const pubClient = new Redis(process.env.REDIS_URL);
+      const subClient = pubClient.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('[Phase 3] Redis Pub/Sub adapter connected for horizontal clustering');
+    } catch (err) {
+      console.warn('[Phase 3] Could not initialize Redis adapter, running in single-instance mode:', err.message);
+    }
+  } else {
+    console.log('[Phase 3] Single-instance mode active (provide REDIS_URL to enable cross-server cluster scaling)');
+  }
+
+  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
 
   app.use((req, res, next) => {
@@ -28,18 +45,26 @@ async function startServer() {
     next();
   });
 
+  const officeRoutes = require('./routes/office.routes');
+
+  app.set('io', io);
   app.use('/api/auth', authRoutes);
+  app.use('/api/offices', officeRoutes);
   
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+  const { startProximityService, meshTelemetry } = require('./services/proximity.service');
+  app.get('/api/telemetry/mesh', (req, res) => {
+    res.json(meshTelemetry.getStats());
+  });
 
   // Initialize sockets
   socketHandler(io);
 
-  const { startProximityService } = require('./services/proximity.service');
   startProximityService(io);
 
-  server.listen(env.PORT, () => {
-    console.log(`Server listening on port ${env.PORT}`);
+  server.listen(env.PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${env.PORT} (0.0.0.0)`);
   });
 }
 
