@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: proxispeak
+    runtime: node
+    plan: free
+    buildCommand: npm ci --prefix server && npm ci --prefix client && npm run build --prefix client
+    startCommand: npm start --prefix server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false

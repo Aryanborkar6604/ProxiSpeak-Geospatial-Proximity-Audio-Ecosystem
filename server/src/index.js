@@ -2,14 +2,23 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
 const env = require('./config/env');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth.routes');
+const rtcRoutes = require('./routes/rtc.routes');
 const socketHandler = require('./sockets');
 
 async function startServer() {
-  await connectDB();
+  const dbConnected = await connectDB();
+  if (!dbConnected) {
+    console.log('[server] Running in local fallback mode without MongoDB persistence.');
+    if (env.NODE_ENV === 'production') {
+      throw new Error('MongoDB must be connected before starting ProxiSpeak in production.');
+    }
+  }
 
   const app = express();
   const server = http.createServer(app);
@@ -49,9 +58,20 @@ async function startServer() {
 
   app.set('io', io);
   app.use('/api/auth', authRoutes);
+  app.use('/api/rtc', rtcRoutes);
   app.use('/api/offices', officeRoutes);
   
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+  const clientBuildPath = path.resolve(__dirname, '../../client/dist');
+  const clientEntryPath = path.join(clientBuildPath, 'index.html');
+  if (fs.existsSync(clientEntryPath)) {
+    app.use(express.static(clientBuildPath, { index: false }));
+    app.get(/.*/, (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      return res.sendFile(clientEntryPath);
+    });
+  }
 
   const { startProximityService, meshTelemetry } = require('./services/proximity.service');
   app.get('/api/telemetry/mesh', (req, res) => {
@@ -68,4 +88,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[server] Startup failed:', error.message);
+  process.exitCode = 1;
+});

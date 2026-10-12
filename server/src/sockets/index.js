@@ -9,6 +9,12 @@ function socketHandler(io) {
   io.on('connection', (socket) => {
     const userId = socket.data.userId;
     console.log(`User connected: ${userId} (socket: ${socket.id})`);
+    const sessionExpiresIn = Math.max(0, socket.data.tokenExpiresAt - Date.now());
+    const sessionExpiryTimer = setTimeout(() => {
+      socket.emit('auth:expired');
+      socket.disconnect(true);
+    }, sessionExpiresIn);
+    sessionExpiryTimer.unref?.();
     
     socket.join(`user_${userId}`); // Join personal room for targeted events
 
@@ -21,16 +27,31 @@ function socketHandler(io) {
         socket.data.officeId = officeId;
 
         // Check if user already had a saved position or spawn at default
+        const office = await officeService.getOffice(officeId);
         const existingPos = await positionService.getPosition(userId, officeId);
         const spawnX = existingPos?.location?.[0] ?? (150 + Math.floor(Math.random() * 80));
         const spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
         
         // Execute in parallel for instant response
-        const [office, onlinePositions] = await Promise.all([
-          officeService.getOffice(officeId),
-          positionService.getOnlineUsers(officeId),
+        const [onlinePositions, nearbyPositions] = await Promise.all([
+          positionService.getOnlineUsers(officeId, office),
+          positionService.getNearbyUsers(officeId, spawnX, spawnY, office.hearingRadiusPx || 105),
           positionService.updatePosition(userId, officeId, spawnX, spawnY),
         ]);
+        const positionsByUserId = new Map(
+          [...onlinePositions, ...nearbyPositions].map((position) => [position.userId, position]),
+        );
+        const joinedPositions = [...positionsByUserId.values()];
+        const officeSockets = await io.in(officeId).fetchSockets();
+        const namesByUserId = new Map(
+          officeSockets
+            .filter((officeSocket) => officeSocket.data.userName)
+            .map((officeSocket) => [officeSocket.data.userId, officeSocket.data.userName]),
+        );
+        const usersWithNames = joinedPositions.map((user) => ({
+          ...(user.toObject ? user.toObject() : user),
+          name: namesByUserId.get(user.userId) || `Guest ${String(user.userId).slice(-4)}`,
+        }));
         
         socket.emit('office:state', {
           officeId: office.officeId,
@@ -38,11 +59,11 @@ function socketHandler(io) {
           height: office.height,
           obstacles: office.obstacles,
           zones: office.zones,
-          users: onlinePositions,
+          users: usersWithNames,
         });
 
         // Broadcast to everyone else in the office so they see the new avatar instantly
-        socket.to(officeId).emit('player:moved', { userId, x: spawnX, y: spawnY });
+        socket.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x: spawnX, y: spawnY });
         
         console.log(`User ${userId} joined office ${officeId} at [${spawnX}, ${spawnY}]`);
       } catch (err) {
@@ -63,7 +84,7 @@ function socketHandler(io) {
         await positionService.updatePosition(userId, officeId, validX, validY);
 
         // Broadcast to room
-        io.to(officeId).emit('player:moved', { userId, x: validX, y: validY });
+        io.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x: validX, y: validY });
       } catch (err) {
         console.error('player:move error', err);
       }
@@ -105,6 +126,7 @@ function socketHandler(io) {
     });
 
     socket.on('disconnect', async () => {
+      clearTimeout(sessionExpiryTimer);
       console.log(`User disconnected: ${userId}`);
       if (userId) {
         cleanupUser(userId);

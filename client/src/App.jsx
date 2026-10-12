@@ -3,9 +3,9 @@ import { io } from 'socket.io-client';
 import useWebRTC from './hooks/useWebRTC';
 import './App.css';
 import {
-  ArrowUpRight, AudioLines, Check, ChevronDown, CircleHelp,
-  Command, Copy, Headphones, LogOut, Mic, MicOff, Moon, MoreHorizontal, Search,
-  Settings2, ShieldCheck, Sparkles, Sun, UserPlus, Users, Wifi, X,
+  ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Mic,
+  MicOff, Moon, Search,
+  ShieldCheck, Sparkles, Sun, UserPlus, Users, Wifi, X,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
 
@@ -20,14 +20,19 @@ const getBackendBase = () => {
   return 'http://localhost:4000';
 };
 
-const API_BASE_URL = `${getBackendBase()}/api`;
-const SOCKET_BASE_URL = getBackendBase();
+const API_BASE_URL = import.meta.env.VITE_API_URL || `${getBackendBase()}/api`;
+const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || getBackendBase();
 
 function App() {
   const [socket, setSocket] = useState(null);
-  const [token, setToken] = useState(() => sessionStorage.getItem('token') || localStorage.getItem('token'));
-  const [userId, setUserId] = useState(() => sessionStorage.getItem('userId') || localStorage.getItem('userId'));
-  const [userName, setUserName] = useState(() => sessionStorage.getItem('userName') || localStorage.getItem('userName') || 'You');
+  const [token, setToken] = useState(() => sessionStorage.getItem('token'));
+  const [userId, setUserId] = useState(() => sessionStorage.getItem('userId'));
+  const [userName, setUserName] = useState(() => sessionStorage.getItem('userName') || 'You');
+  const [authMode, setAuthMode] = useState(() => (
+    typeof window !== 'undefined' && window.location.pathname === '/register' ? 'register' : 'login'
+  ));
+  const [authChecking, setAuthChecking] = useState(() => Boolean(sessionStorage.getItem('token')));
+  const [showPassword, setShowPassword] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : false));
   const [officeState, setOfficeState] = useState(() => ({
     officeId: 'main-office',
@@ -39,11 +44,20 @@ function App() {
     users: [],
   }));
   const [peers, setPeers] = useState({});
-  const [loginError, setLoginError] = useState('');
+  const [authError, setAuthError] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
+  const [currentOfficeId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('office') || 'main-office';
+    }
+    return 'main-office';
+  });
   const {
     requestMic,
     micPermissionState,
+    voiceConnectionState,
+    voiceMode,
     isMuted: muted,
     toggleMute: setMuted,
     nearbyPeers: webrtcPeers,
@@ -53,19 +67,22 @@ function App() {
     speakingPeers,
     mutedPeers,
     peerAttenuations,
-  } = useWebRTC(socket, userId);
+  } = useWebRTC(socket, userId, token, currentOfficeId);
   const [search, setSearch] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedLan, setCopiedLan] = useState(false);
+  const [canvasFps, setCanvasFps] = useState(0);
+  const handleFrameRateChange = useCallback((fps) => {
+    setCanvasFps((currentFps) => (currentFps === fps ? currentFps : fps));
+  }, []);
 
-  const [currentOfficeId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('office') || 'main-office';
-    }
-    return 'main-office';
-  });
+  const changeAuthMode = (mode) => {
+    setAuthMode(mode);
+    setAuthError('');
+    setShowPassword(false);
+    const nextPath = mode === 'register' ? '/register' : '/login';
+    window.history.pushState({}, '', `${nextPath}${window.location.search}`);
+  };
 
   const toggleTheme = () => {
     setIsDarkMode((prev) => {
@@ -76,15 +93,81 @@ function App() {
   };
 
   useEffect(() => {
-    if (!token) return undefined;
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userName');
+  }, []);
+
+  useEffect(() => {
+    const handleHistoryChange = () => {
+      setAuthMode(window.location.pathname === '/register' ? 'register' : 'login');
+      setAuthError('');
+      setShowPassword(false);
+    };
+    window.addEventListener('popstate', handleHistoryChange);
+    return () => window.removeEventListener('popstate', handleHistoryChange);
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    fetch(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.user) {
+          throw new Error(result.error || 'Your session could not be verified. Please sign in again.');
+        }
+        sessionStorage.setItem('userId', result.user.userId);
+        sessionStorage.setItem('userName', result.user.name);
+        setUserId(result.user.userId);
+        setUserName(result.user.name);
+        setAuthError('');
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('userId');
+        sessionStorage.removeItem('userName');
+        setToken(null);
+        setUserId(null);
+        setUserName('You');
+        setAuthError(error.message || 'Your session could not be verified. Please sign in again.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAuthChecking(false);
+      });
+
+    return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || authChecking) return undefined;
     const nextSocket = io(SOCKET_BASE_URL, { auth: { token } });
     nextSocket.on('connect', () => nextSocket.emit('office:join', { officeId: currentOfficeId }));
     nextSocket.on('office:state', setOfficeState);
     nextSocket.on('office:updated', (updated) => {
       setOfficeState((prev) => prev ? { ...prev, ...updated } : prev);
     });
+    nextSocket.on('auth:expired', () => {
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('userId');
+      sessionStorage.removeItem('userName');
+      setToken(null);
+      setUserId(null);
+      setUserName('You');
+      setAuthError('Your session expired. Sign in again to rejoin your office.');
+    });
     nextSocket.on('connect_error', (error) => {
       if (error.message.includes('Authentication error')) {
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('userId');
+        sessionStorage.removeItem('userName');
         localStorage.removeItem('token');
         localStorage.removeItem('userId');
         localStorage.removeItem('userName');
@@ -95,32 +178,41 @@ function App() {
     });
     setSocket(nextSocket);
     return () => nextSocket.close();
-  }, [token, currentOfficeId]);
+  }, [token, currentOfficeId, authChecking]);
 
-  const handleLogin = async (event) => {
+  const handleAuthSubmit = async (event) => {
     event.preventDefault();
-    setLoginError('');
+    setAuthError('');
     setLoginBusy(true);
     try {
       const form = new FormData(event.currentTarget);
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      const password = String(form.get('password') || '');
+      if (authMode === 'register' && password !== form.get('confirmPassword')) {
+        throw new Error('Your passwords do not match.');
+      }
+      const endpoint = authMode === 'register' ? 'register' : 'login';
+      const payload = {
+        email: form.get('email'),
+        password,
+      };
+      if (authMode === 'register') payload.name = form.get('name');
+      const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.get('email'), name: form.get('name') }),
+        body: JSON.stringify(payload),
       });
       const result = await response.json();
-      if (!response.ok || !result.token) throw new Error(result.error || 'Could not sign in. Please try again.');
+      if (!response.ok || !result.token) throw new Error(result.error || 'We could not sign you in. Please try again.');
       sessionStorage.setItem('token', result.token);
       sessionStorage.setItem('userId', result.user.userId);
       sessionStorage.setItem('userName', result.user.name);
-      localStorage.setItem('token', result.token);
-      localStorage.setItem('userId', result.user.userId);
-      localStorage.setItem('userName', result.user.name);
+      window.history.replaceState({}, '', `/${window.location.search}`);
+      setAuthChecking(true);
       setUserId(result.user.userId);
       setUserName(result.user.name);
       setToken(result.token);
     } catch (error) {
-      setLoginError(error.message || 'Unable to reach ProxiSpeak. Check that the server is running.');
+      setAuthError(error.message || 'Unable to reach ProxiSpeak. Check that the server is running.');
     } finally {
       setLoginBusy(false);
     }
@@ -133,13 +225,6 @@ function App() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleCopyLan = () => {
-    const url = `http://172.30.240.63:5173/?office=${currentOfficeId}`;
-    navigator.clipboard.writeText(url);
-    setCopiedLan(true);
-    setTimeout(() => setCopiedLan(false), 2000);
-  };
-
   const logout = () => {
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('userId');
@@ -148,6 +233,9 @@ function App() {
     localStorage.removeItem('userId');
     localStorage.removeItem('userName');
     setToken(null);
+    setAuthError('');
+    setAuthMode('login');
+    window.history.replaceState({}, '', `/${window.location.search}`);
     setUserId(null);
     setUserName('You');
     setOfficeState(null);
@@ -159,42 +247,135 @@ function App() {
   }, [updateSpatialAudio]);
 
   const people = useMemo(() => {
-    const self = userId ? [{ id: userId, name: 'You', self: true, position: null }] : [];
-    return [...self, ...Object.entries(peers).map(([id, position], index) => ({ id, name: `Teammate ${index + 1}`, position }))];
-  }, [peers, userId]);
+    const self = userId ? [{ id: userId, name: userName || 'You', self: true, position: null }] : [];
+    return [
+      ...self,
+      ...Object.entries(peers).map(([id, position]) => ({
+        id,
+        name: position.name || `Guest ${id.slice(-4)}`,
+        position,
+      })),
+    ];
+  }, [peers, userId, userName]);
   const visiblePeople = people.filter((person) => person.name.toLowerCase().includes(search.toLowerCase()));
 
+  if (token && authChecking) {
+    return <main className="loading-screen auth-verifying"><Brand /><div className="loading-indicator" /><span>Verifying your account…</span></main>;
+  }
+
   if (!token) {
+    const isRegister = authMode === 'register';
     return (
       <main className="login-shell">
         <div className="login-visual">
-          <div className="login-topline"><Brand /><span className="login-note"><ShieldCheck size={15} /> Private by design</span></div>
+          <div className="login-topline"><Brand /><span className="login-note"><ShieldCheck size={15} /> Sign in to your office</span></div>
           <div className="login-copy">
-            <div className="eyebrow"><span className="live-dot" /> YOUR SPACE, TOGETHER</div>
-            <h1>Work feels<br />better <em>closer.</em></h1>
-            <p>A shared office for the moments that make work, work. Drop in, find your people, and let conversation happen naturally.</p>
-            <div className="login-quote"><AudioLines size={19} /><span>Good ideas have a way of finding each other.</span></div>
+            <h1>Good work happens<br /><em>within earshot.</em></h1>
+            <p>A shared office where you can see your team, move around the floor, and talk when you’re nearby.</p>
+            <div className="auth-map-preview" role="img" aria-label="Illustration of an office floor and a nearby voice range">
+              <div className="auth-map-heading"><span><AudioLines size={14} /> THE OFFICE</span><span>ILLUSTRATION</span></div>
+              <div className="auth-map-floor">
+                <span className="auth-room room-library">THE LIBRARY</span>
+                <span className="auth-room room-studio">STUDIO</span>
+                <span className="auth-room room-lounge">LOUNGE</span>
+                <span className="auth-range" />
+                <span className="auth-map-person auth-map-you">YOU</span>
+                <span className="auth-map-person auth-map-teammate">TEAMMATE</span>
+              </div>
+              <div className="auth-map-legend"><i /><span>VOICE RANGE</span><i className="auth-legend-person" /><span>TEAM PRESENCE</span></div>
+            </div>
           </div>
-          <div className="login-orbit orbit-one" /><div className="login-orbit orbit-two" />
-          <div className="login-visual-footer"><span>PROXIMITY, MADE HUMAN</span><span>01 — 04</span></div>
+          <div className="login-visual-footer"><span>PROXIMITY, MADE HUMAN</span><span>PROXISPEAK</span></div>
         </div>
         <section className="login-panel">
-          <div className="login-panel-inner">
-            <span className="overline">WELCOME TO YOUR OFFICE</span>
-            <h2>Come on in.</h2>
-            <p className="login-subtitle">Sign in to join your team's shared space.</p>
-            <form className="login-form" onSubmit={handleLogin}>
-              <label htmlFor="name">Your name</label>
-              <input id="name" name="name" autoComplete="name" placeholder="e.g. Alex Morgan" required />
+          <div className="login-panel-inner" aria-labelledby="auth-title">
+            <div className="auth-panel-label"><span className="auth-panel-mark" /><span>{isRegister ? 'CREATE AN ACCOUNT' : 'WELCOME BACK'}</span></div>
+            <h2 id="auth-title">{isRegister ? 'Join your team.' : 'Sign in to your office.'}</h2>
+            <p className="login-subtitle">
+              {isRegister ? 'Set up your account to step into the office.' : 'Sign in to join your team’s shared space.'}
+            </p>
+            <form className="login-form" onSubmit={handleAuthSubmit}>
+              {isRegister && (
+                <>
+                  <label htmlFor="name">Your name</label>
+                  <input
+                    id="name"
+                    name="name"
+                    autoComplete="name"
+                    placeholder="e.g. Alex Morgan"
+                    minLength={2}
+                    maxLength={80}
+                    required
+                  />
+                </>
+              )}
               <label htmlFor="email">Work email</label>
-              <input id="email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required />
-              {loginError && <p className="form-error" role="alert">{loginError}</p>}
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder="name@company.com"
+                maxLength={254}
+                required
+              />
+              <label htmlFor="password">Password</label>
+              <div className="password-input-wrap">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  placeholder={isRegister ? 'At least 8 characters' : 'Enter your password'}
+                  minLength={8}
+                  maxLength={72}
+                  required
+                />
+                <button
+                  className="password-visibility"
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+              {isRegister && (
+                <>
+                  <label htmlFor="confirmPassword">Confirm password</label>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    placeholder="Enter your password again"
+                    minLength={8}
+                    maxLength={72}
+                    required
+                  />
+                  <p className="password-guidance">Use at least 8 characters. Your password is stored as a secure hash.</p>
+                </>
+              )}
+              {authError && <p className="form-error" role="alert">{authError}</p>}
               <button className="button button-primary login-submit" type="submit" disabled={loginBusy}>
-                {loginBusy ? 'Opening your office…' : 'Enter your office'} <ArrowUpRight size={17} />
+                {loginBusy
+                  ? (isRegister ? 'Creating your account…' : 'Signing you in…')
+                  : (isRegister ? 'Create account' : 'Sign in')}
+                <ArrowUpRight size={17} />
               </button>
             </form>
-            <div className="login-privacy"><ShieldCheck size={15} /><span>Your conversations stay yours. Audio is never recorded.</span></div>
-            <div className="login-bottom"><span>Need a hand?</span><button type="button" className="text-button"><CircleHelp size={15} /> Get help</button></div>
+            <div className="login-privacy"><ShieldCheck size={15} /><span>Audio is live only when you choose to join.</span></div>
+            <div className="login-bottom">
+              <span>{isRegister ? 'Already have an account?' : 'New to ProxiSpeak?'}</span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => changeAuthMode(isRegister ? 'login' : 'register')}
+              >
+                {isRegister ? 'Sign in' : 'Create an account'}
+              </button>
+            </div>
           </div>
         </section>
       </main>
@@ -203,8 +384,7 @@ function App() {
 
   const connected = Boolean(socket?.connected);
   const officeName = officeState?.name || 'The Commons';
-  const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
+  const waveScale = Math.max(0.55, Math.min(2.2, localVolume * 2.2));
 
   if (!officeState) {
     return <main className="loading-screen"><Brand /><div className="loading-indicator" /><span>Preparing your space…</span><button className="text-button" onClick={logout}>Sign out</button></main>;
@@ -213,8 +393,8 @@ function App() {
   return (
     <main className={`app-shell ${isDarkMode ? 'dark-theme' : ''}`}>
       <header className="topbar">
-        <div className="topbar-brand"><Brand /><span className="topbar-divider" /><button className="office-switcher"><span className="office-icon">C</span><span><strong>{officeName}</strong><small>Workspace</small></span><ChevronDown size={15} /></button></div>
-        <div className="topbar-center"><span className="connection-indicator"><span className={connected ? 'live-dot' : 'live-dot is-offline'} />{connected ? 'All systems clear' : 'Reconnecting'}</span><span className="topbar-separator" /><span className="privacy-label"><ShieldCheck size={14} /> End-to-end private</span></div>
+        <div className="topbar-brand"><Brand /><span className="topbar-divider" /><div className="office-switcher" aria-label={`Current office: ${officeName}`}><span className="office-icon">C</span><span><strong>{officeName}</strong><small>Team office</small></span></div></div>
+        <div className="topbar-center"><span className="connection-indicator" role="status"><span className={connected ? 'live-dot' : 'live-dot is-offline'} />{connected ? 'Connected' : 'Reconnecting'}</span><span className="topbar-separator" /><span className="privacy-label"><ShieldCheck size={14} /> Signed in</span></div>
         <div className="topbar-actions">
           <button
             className="icon-button theme-toggle-button"
@@ -224,23 +404,22 @@ function App() {
           >
             {isDarkMode ? <Sun size={17} /> : <Moon size={17} />}
           </button>
-          <button className="button button-primary" style={{ height: 34, padding: '0 12px', borderRadius: 9, fontSize: 11, gap: 6 }} onClick={() => setShowInviteModal(true)}>
+          <button className="button button-primary invite-button" onClick={() => setShowInviteModal(true)}>
             <UserPlus size={14} /> <span>Invite</span>
           </button>
-          <button className="icon-button help-button" aria-label="Help"><CircleHelp size={18} /></button>
-          <button className="profile-button" onClick={logout} title="Sign out"><span className="profile-avatar">{initials(userName)}</span><span className="profile-name">{userName}</span><LogOut size={15} /></button>
+          <button className="profile-button" onClick={logout} title="Sign out" aria-label={`Sign out ${userName}`}><span className="profile-avatar">{initials(userName)}</span><span className="profile-name">{userName}</span><LogOut size={15} /></button>
         </div>
       </header>
 
       <div className="workspace-layout">
         <section className="world-column">
           <div className="world-heading">
-            <div><div className="eyebrow muted-eyebrow">{todayLabel} <span className="heading-dot">·</span> YOUR TEAM, IN REAL TIME</div><h1>{greeting}<span className="heading-period">.</span></h1><p>Take a look around. Your people are just a little closer.</p></div>
-            <div className="world-heading-actions"><div className="avatar-stack" aria-label={`${people.length} people in office`}>{people.slice(0, 4).map((person, i) => <span key={person.id} className={`mini-avatar mini-${i}`} style={{ background: person.self ? '#286b5e' : colors[i % colors.length] }}>{initials(person.name)}</span>)}{people.length > 4 && <span className="avatar-more">+{people.length - 4}</span>}</div><span className="people-count"><strong>{people.length}</strong> here now</span></div>
+            <div className="world-heading-copy"><div className="eyebrow muted-eyebrow">{todayLabel} <span className="heading-dot">·</span> YOUR TEAM, IN REAL TIME</div><h1>{officeName}<span className="heading-period">.</span></h1><p>Move around the floor to find people and start a conversation.</p></div>
+            <div className="world-heading-actions"><span className="people-count"><span className="heading-live-dot" /><strong>{people.length}</strong> {people.length === 1 ? 'person' : 'people'} here</span><div className="avatar-stack" aria-label={`${people.length} people in office`}>{people.slice(0, 4).map((person, i) => <span key={person.id} className={`mini-avatar mini-${i}`} style={{ background: person.self ? '#286b5e' : colors[i % colors.length] }}>{initials(person.name)}</span>)}{people.length > 4 && <span className="avatar-more">+{people.length - 4}</span>}</div></div>
           </div>
 
           <section className="office-card" aria-label="Live office map">
-            <div className="map-topline"><div className="map-title"><span className="map-live-dot" /><span>LIVE OFFICE</span><span className="map-coordinates">/ FLOOR 01</span></div><div className="map-actions"><span className="map-legend"><i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall</span><button className="map-icon-button" aria-label="Map options"><MoreHorizontal size={19} /></button></div></div>
+            <div className="map-topline"><div className="map-title"><span className="map-live-dot" /><span>LIVE OFFICE</span><span className="map-coordinates">/ FLOOR 01</span></div><div className="map-actions"><span className="map-legend"><i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall</span></div></div>
             <div className="office-map-wrap">
               <OfficeCanvas 
                 socket={socket} 
@@ -248,6 +427,7 @@ function App() {
                 localUserId={userId} 
                 onPeersChange={setPeers} 
                 onPositionChange={handlePositionChange}
+                onFrameRateChange={handleFrameRateChange}
                 nearbyPeers={webrtcPeers}
                 speakingPeers={speakingPeers}
                 mutedPeers={mutedPeers}
@@ -257,17 +437,17 @@ function App() {
                 isDarkMode={isDarkMode}
               />
             </div>
-            <div className="map-bottomline"><span><Command size={13} /> Move around with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</span><button className="map-reset" onClick={() => document.querySelector('.office-canvas')?.focus()}><span className="focus-ring" /> Click map to focus</button></div>
+            <div className="map-bottomline"><span><Command size={13} /> Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</span><button className="map-reset" aria-label="Focus office map" title="Focus office map" onClick={() => document.querySelector('.office-canvas')?.focus()}><span className="focus-ring" /> Focus map</button></div>
           </section>
 
-          <div className="world-footnote"><Sparkles size={14} /><span>Sound travels naturally: walls muffle sound, proximity brings clarity.</span><button className="text-button" type="button">How proximity works <ArrowUpRight size={13} /></button></div>
+          <div className="world-footnote"><Sparkles size={14} /><span>Sound changes with distance. Walls soften it; getting closer brings voices into focus.</span></div>
         </section>
 
         <aside className="people-sidebar">
-          <div className="sidebar-heading"><div><div className="eyebrow muted-eyebrow">YOUR WORKSPACE</div><h2>The people</h2></div><button className="icon-button" aria-label="Workspace settings"><Settings2 size={18} /></button></div>
+          <div className="sidebar-heading"><div><div className="eyebrow muted-eyebrow">YOUR WORKSPACE</div><h2>In this office</h2></div></div>
           <div className="sidebar-summary"><div className="summary-icon"><Users size={16} /></div><div><strong>{people.length} {people.length === 1 ? 'person' : 'people'} around</strong><span>{people.length > 1 ? 'Your office is coming to life' : 'You’re the first one in'}</span></div></div>
-          <div className="people-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find someone…" aria-label="Find someone" /><kbd>/</kbd></div>
-          <div className="people-section-label"><span>IN THE OFFICE</span><span>{people.length.toString().padStart(2, '0')}</span></div>
+          <label className="people-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a teammate" aria-label="Find a teammate" /></label>
+          <div className="people-section-label"><span>TEAMMATES</span><span>{people.length.toString().padStart(2, '0')}</span></div>
           <div className="people-list">
             {visiblePeople.map((person) => {
               const getSidebarColor = (id) => {
@@ -330,7 +510,7 @@ function App() {
             {visiblePeople.length === 0 && <div className="empty-search">No one by that name yet.</div>}
           </div>
           <div className="sidebar-spacer" />
-          <div className="quiet-card"><div className="quiet-card-icon"><Headphones size={17} /></div><div><strong>Spatial Audio Live</strong><p>Voices scale by distance. Approach peers to speak naturally.</p></div></div>
+          <div className="quiet-card"><div className="quiet-card-icon"><Headphones size={17} /></div><div><strong>{micPermissionState === 'granted' ? 'Microphone ready' : 'Microphone off'}</strong><p>{micPermissionState === 'granted' ? 'Nearby voice responds to distance and walls.' : 'Allow microphone access to join nearby conversations.'}</p></div></div>
           <div className="sidebar-footer">
             <span><span className="live-dot" /> Your space is live</span>
             <button className="text-button" type="button" onClick={() => setShowInviteModal(true)}>
@@ -342,18 +522,13 @@ function App() {
 
       <div className="control-dock">
         {micPermissionState !== 'granted' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '0 16px' }}>
-            {micPermissionState === 'insecure_context' ? (
-              <span style={{ fontSize: 11, color: '#c45a4f' }}>
-                <Mic size={16} style={{ verticalAlign: 'middle', marginRight: 6 }}/>
-                Microphone requires secure origin (HTTPS/localhost). For Wi-Fi IP in Chrome, enable: <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>
-              </span>
-            ) : (
-              <>
-                <span><Mic size={18} style={{ verticalAlign: 'middle', marginRight: 8 }}/> ProxiSpeak needs microphone access for nearby audio</span>
-                <button className="button button-primary" onClick={requestMic}>Enable Microphone</button>
-              </>
-            )}
+          <div className={`mic-access-banner ${micPermissionState === 'insecure_context' ? 'is-insecure' : ''}`} role="status">
+            <span className="mic-access-icon"><Mic size={17} /></span>
+            <span className="mic-access-copy">
+              <strong>{micPermissionState === 'insecure_context' ? 'A secure connection is needed' : 'Microphone access is off'}</strong>
+              <small>{micPermissionState === 'insecure_context' ? 'Open ProxiSpeak over HTTPS or localhost to use voice.' : 'Allow access to talk with teammates nearby.'}</small>
+            </span>
+            {micPermissionState !== 'insecure_context' && <button className="button button-primary mic-access-button" onClick={requestMic}>Enable microphone</button>}
           </div>
         ) : (
           <>
@@ -368,18 +543,16 @@ function App() {
                 <span className="mic-icon-wrap">{muted ? <MicOff size={18} /> : <Mic size={18} />}</span>
                 <span>{muted ? 'Mic off' : (isSpeaking ? 'Speaking' : 'Mic on')}</span>
               </button>
-              <span className="dock-divider" />
-              <button className="headphones-button" aria-label="Audio settings"><Headphones size={17} /><span>Audio</span><ChevronDown size={14} /></button>
             </div>
             <div className="dock-hint">
               <span className={`sound-wave ${isSpeaking ? 'is-active' : ''}`}>
-                <i style={{ height: isSpeaking ? `${Math.max(6, Math.round(localVolume * 22))}px` : undefined }} />
-                <i style={{ height: isSpeaking ? `${Math.max(9, Math.round(localVolume * 26))}px` : undefined }} />
-                <i style={{ height: isSpeaking ? `${Math.max(12, Math.round(localVolume * 30))}px` : undefined }} />
-                <i style={{ height: isSpeaking ? `${Math.max(9, Math.round(localVolume * 26))}px` : undefined }} />
-                <i style={{ height: isSpeaking ? `${Math.max(6, Math.round(localVolume * 22))}px` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
               </span>
-              <span>{isSpeaking ? <b style={{ color: '#2FD38B' }}>Speaking…</b> : (muted ? <b style={{ color: '#888' }}>Muted</b> : <>Ambient mode <b>Active</b></>)}</span>
+              <span>{isSpeaking ? <b className="voice-speaking-label">Speaking…</b> : (muted ? <b>Microphone muted</b> : <>Nearby voice <b>ready</b></>)}</span>
             </div>
           </>
         )}
@@ -387,58 +560,44 @@ function App() {
 
       {showInviteModal && (
         <div className="invite-modal-overlay" onClick={() => setShowInviteModal(false)}>
-          <div className="invite-modal" onClick={(e) => e.stopPropagation()}>
+          <section className="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title" onClick={(e) => e.stopPropagation()}>
             <div className="invite-modal-header">
               <div>
                 <span className="overline">INVITE TEAMMATES</span>
-                <h2>Join your office space</h2>
+                <h2 id="invite-title">Bring your team in</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowInviteModal(false)} aria-label="Close modal">
+              <button className="icon-button" type="button" onClick={() => setShowInviteModal(false)} aria-label="Close invite dialog">
                 <X size={18} />
               </button>
             </div>
 
             <p className="invite-desc">
-              Share an invite link with your friends. Once they open it and enable their microphone, you can walk close to each other on the map to speak in real-time!
+              Share this office link with a teammate. They can sign in or create an account, then join you on the floor.
             </p>
 
             <div className="invite-field-group">
-              <label>Direct Invite Link</label>
+              <label htmlFor="office-invite-link">Office link</label>
               <div className="invite-input-row">
-                <input readOnly value={`${window.location.origin}/?office=${currentOfficeId}`} />
-                <button className="button button-primary" onClick={handleCopyMain}>
+                <input id="office-invite-link" readOnly value={`${window.location.origin}/?office=${currentOfficeId}`} />
+                <button className="button button-primary" type="button" onClick={handleCopyMain}>
                   {copiedLink ? <><Check size={14} style={{ marginRight: 4 }} /> Copied!</> : <><Copy size={14} style={{ marginRight: 4 }} /> Copy Link</>}
                 </button>
               </div>
             </div>
 
-            <div className="invite-field-group" style={{ marginTop: '16px' }}>
-              <label>Wi-Fi / Local Network Link (for friends on same Wi-Fi)</label>
-              <div className="invite-input-row">
-                <input readOnly value={`http://172.30.240.63:5173/?office=${currentOfficeId}`} />
-                <button className="button button-secondary" onClick={handleCopyLan}>
-                  {copiedLan ? <><Check size={14} style={{ marginRight: 4 }} /> Copied!</> : <><Copy size={14} style={{ marginRight: 4 }} /> Copy Wi-Fi Link</>}
-                </button>
-              </div>
-              <small style={{ color: '#888', marginTop: '6px', display: 'block', fontSize: 10 }}>
-                Give this link to anyone connected to the same Wi-Fi router.
-              </small>
-            </div>
-
             <div className="invite-steps">
-              <h4>How proximity voice works:</h4>
+              <h4>Once they’re in</h4>
               <ol>
-                <li>Your friend opens the link in their browser and enters their name.</li>
-                <li>They click <strong>Enable Microphone</strong> in the bottom bar.</li>
-                <li>Walk your avatars close together on the office floor.</li>
-                <li>High-quality peer-to-peer audio connects automatically!</li>
+                <li>They sign in or create their account.</li>
+                <li>They allow microphone access over a secure connection.</li>
+                <li>Move close together on the floor to talk.</li>
               </ol>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
-      <footer className="app-footer"><span>PROXISPEAK <i>·</i> A MORE HUMAN WAY TO WORK</span><span><Wifi size={13} /> Low latency <span className="footer-divider">/</span> Built for being together</span></footer>
+      <footer className="app-footer"><span>PROXISPEAK <i>·</i> A MORE HUMAN WAY TO WORK</span><span><Wifi size={13} /> {voiceMode === 'livekit' ? `SFU ${voiceConnectionState}` : 'Peer audio'} <span className="footer-divider">/</span>{canvasFps || '—'} FPS <span className="footer-divider">/</span> Built for being together</span></footer>
     </main>
   );
 }

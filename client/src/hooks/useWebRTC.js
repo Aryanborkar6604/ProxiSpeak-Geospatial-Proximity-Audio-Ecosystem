@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const RTC_CONFIG = {
+const DEFAULT_RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -9,7 +9,12 @@ const RTC_CONFIG = {
   ],
 };
 
-export default function useWebRTC(socket, localUserId) {
+export default function useWebRTC(socket, localUserId, token, officeId) {
+  const [rtcConfig, setRtcConfig] = useState(DEFAULT_RTC_CONFIG);
+  const [rtcMode, setRtcMode] = useState('peer');
+  const [loadedRtcToken, setLoadedRtcToken] = useState(null);
+  const rtcConfigReady = !token || loadedRtcToken === token;
+  const [voiceConnectionState, setVoiceConnectionState] = useState('idle');
   const [localStream, setLocalStream] = useState(null);
   const [micPermissionState, setMicPermissionState] = useState('prompt'); // prompt, granted, denied, unsupported, insecure_context
   const [isMuted, setIsMuted] = useState(false);
@@ -21,15 +26,58 @@ export default function useWebRTC(socket, localUserId) {
   const [peerAttenuations, setPeerAttenuations] = useState({});
   
   const peerConnections = useRef({});
+  const livekitRoomRef = useRef(null);
   const audioElements = useRef({});
   const iceCandidateQueues = useRef({});
   const audioContextRef = useRef(null);
   const spatialNodesRef = useRef({}); // { [peerId]: { source, gainNode, pannerNode } }
   const positionsRef = useRef({ local: { x: 175, y: 335 }, peers: {} });
   const peerAttenuationsRef = useRef({});
+  const nearbyPeersRef = useRef(nearbyPeers);
   const localAnalyserRef = useRef(null);
   const isMutedRef = useRef(false);
   isMutedRef.current = isMuted;
+
+  useEffect(() => {
+    nearbyPeersRef.current = nearbyPeers;
+  }, [nearbyPeers]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    fetch(`${apiBaseUrl}/rtc/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`RTC configuration request failed (${response.status}).`);
+        }
+        const config = await response.json();
+        if (!Array.isArray(config.iceServers) || config.iceServers.length === 0) {
+          throw new Error('RTC configuration did not include any ICE servers.');
+        }
+        setRtcConfig({ iceServers: config.iceServers });
+        setRtcMode(config.mode === 'livekit' ? 'livekit' : 'peer');
+        setLoadedRtcToken(token);
+        if (config.mode !== 'livekit') setVoiceConnectionState('ready');
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.warn('[WebRTC] Could not load server ICE configuration; using STUN fallback.', error);
+          setRtcConfig(DEFAULT_RTC_CONFIG);
+          setRtcMode('peer');
+          setLoadedRtcToken(token);
+          setVoiceConnectionState('ready');
+        }
+      });
+
+    return () => controller.abort();
+  }, [token]);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -226,8 +274,276 @@ export default function useWebRTC(socket, localUserId) {
     });
   }, [getAudioContext]);
 
+  const attachRemoteAudio = useCallback((peerId, stream) => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const existing = spatialNodesRef.current[peerId];
+    if (existing) {
+      try {
+        existing.source.disconnect();
+        existing.gainNode.disconnect();
+        existing.pannerNode?.disconnect();
+      } catch (_) {}
+    }
+
+    try {
+      const source = ctx.createMediaStreamSource(stream);
+      const gainNode = ctx.createGain();
+      const pannerNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      if (pannerNode) {
+        source.connect(gainNode);
+        gainNode.connect(pannerNode);
+        pannerNode.connect(ctx.destination);
+      } else {
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+      }
+      spatialNodesRef.current[peerId] = { source, gainNode, pannerNode };
+      updateSpatialAudio(positionsRef.current.local, positionsRef.current.peers);
+    } catch (error) {
+      console.error('[WebAudio] Could not spatialize remote audio:', error);
+      const audioEl = new Audio();
+      audioEl.srcObject = stream;
+      audioElements.current[peerId] = audioEl;
+      audioEl.play().catch((playError) => console.warn('[WebAudio] Audio playback was blocked:', playError));
+    }
+  }, [getAudioContext, updateSpatialAudio]);
+
+  const removeRemoteAudio = useCallback((peerId) => {
+    const nodes = spatialNodesRef.current[peerId];
+    const ctx = audioContextRef.current;
+    if (nodes && ctx) {
+      nodes.gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+      setTimeout(() => {
+        try {
+          nodes.source.disconnect();
+          nodes.gainNode.disconnect();
+          nodes.pannerNode?.disconnect();
+        } catch (_) {}
+        if (spatialNodesRef.current[peerId] === nodes) delete spatialNodesRef.current[peerId];
+      }, 120);
+    }
+
+    const audioEl = audioElements.current[peerId];
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.srcObject = null;
+      delete audioElements.current[peerId];
+    }
+  }, []);
+
   useEffect(() => {
-    if (!socket || !localStream) return undefined;
+    if (!socket) return undefined;
+    const handleEnterRange = ({ userId: peerId, attenuation = 1 }) => {
+      if (rtcMode !== 'livekit') return;
+      peerAttenuationsRef.current[peerId] = attenuation;
+      setPeerAttenuations((previous) => previous[peerId] === attenuation
+        ? previous
+        : { ...previous, [peerId]: attenuation });
+      setNearbyPeers((previous) => previous[peerId] ? previous : { ...previous, [peerId]: true });
+      const participant = livekitRoomRef.current?.remoteParticipants.get(peerId);
+      participant?.audioTrackPublications.forEach((publication) => publication.setSubscribed(true));
+    };
+    const handleExitRange = ({ userId: peerId }) => {
+      if (rtcMode !== 'livekit') return;
+      delete peerAttenuationsRef.current[peerId];
+      setPeerAttenuations((previous) => {
+        const next = { ...previous };
+        delete next[peerId];
+        return next;
+      });
+      setNearbyPeers((previous) => {
+        const next = { ...previous };
+        delete next[peerId];
+        return next;
+      });
+      const participant = livekitRoomRef.current?.remoteParticipants.get(peerId);
+      participant?.audioTrackPublications.forEach((publication) => publication.setSubscribed(false));
+      removeRemoteAudio(peerId);
+    };
+    const handleAttenuationChanged = ({ userId: peerId, attenuation = 1 }) => {
+      if (rtcMode !== 'livekit') return;
+      peerAttenuationsRef.current[peerId] = attenuation;
+      setPeerAttenuations((previous) => ({ ...previous, [peerId]: attenuation }));
+      updateSpatialAudio(positionsRef.current.local, positionsRef.current.peers);
+    };
+    const handleSpeaking = ({ userId: peerId, isSpeaking }) => {
+      setSpeakingPeers((previous) => {
+        if (isSpeaking) return { ...previous, [peerId]: true };
+        const next = { ...previous };
+        delete next[peerId];
+        return next;
+      });
+    };
+    const handleMuted = ({ userId: peerId, isMuted: peerMuted }) => {
+      setMutedPeers((previous) => {
+        if (peerMuted) return { ...previous, [peerId]: true };
+        const next = { ...previous };
+        delete next[peerId];
+        return next;
+      });
+    };
+
+    socket.on('peer:enter-range', handleEnterRange);
+    socket.on('peer:exit-range', handleExitRange);
+    socket.on('peer:attenuation-changed', handleAttenuationChanged);
+    socket.on('player:speaking', handleSpeaking);
+    socket.on('player:muted', handleMuted);
+    return () => {
+      socket.off('peer:enter-range', handleEnterRange);
+      socket.off('peer:exit-range', handleExitRange);
+      socket.off('peer:attenuation-changed', handleAttenuationChanged);
+      socket.off('player:speaking', handleSpeaking);
+      socket.off('player:muted', handleMuted);
+    };
+  }, [socket, rtcMode, removeRemoteAudio, updateSpatialAudio]);
+
+  useEffect(() => {
+    if (!token || !localStream || !officeId || !rtcConfigReady || rtcMode !== 'livekit') {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let room;
+    let cancelled = false;
+    const spatialNodes = spatialNodesRef.current;
+
+    const connectRoom = async () => {
+      setVoiceConnectionState('connecting');
+      try {
+        const { Room, RoomEvent, Track } = await import('livekit-client');
+        const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+        const response = await fetch(`${apiBaseUrl}/rtc/livekit-token?officeId=${encodeURIComponent(officeId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        const credentials = await response.json();
+        if (!response.ok) throw new Error(credentials.error || `LiveKit token request failed (${response.status}).`);
+        if (!credentials.url || !credentials.token) throw new Error('LiveKit credentials response is incomplete.');
+
+        room = new Room({ adaptiveStream: false, dynacast: true });
+        livekitRoomRef.current = room;
+        const syncSubscriptions = () => {
+          room.remoteParticipants.forEach((participant) => {
+            const shouldSubscribe = Boolean(nearbyPeersRef.current[participant.identity]);
+            participant.audioTrackPublications.forEach((publication) => {
+              publication.setSubscribed(shouldSubscribe);
+            });
+          });
+        };
+        const participantConnected = (participant) => {
+          participant.audioTrackPublications.forEach((publication) => {
+            publication.setSubscribed(Boolean(nearbyPeersRef.current[participant.identity]));
+          });
+        };
+        const trackPublished = (publication, participant) => {
+          if (publication.kind === Track.Kind.Audio) {
+            publication.setSubscribed(Boolean(nearbyPeersRef.current[participant.identity]));
+          }
+        };
+        const trackSubscribed = (track, publication, participant) => {
+          if (track.kind === Track.Kind.Audio && nearbyPeersRef.current[participant.identity]) {
+            attachRemoteAudio(participant.identity, new MediaStream([track.mediaStreamTrack]));
+          } else {
+            publication.setSubscribed(false);
+          }
+        };
+        const trackUnsubscribed = (_track, _publication, participant) => {
+          removeRemoteAudio(participant.identity);
+        };
+        const participantDisconnected = (participant) => {
+          removeRemoteAudio(participant.identity);
+          delete peerAttenuationsRef.current[participant.identity];
+          setPeerAttenuations((previous) => {
+            const next = { ...previous };
+            delete next[participant.identity];
+            return next;
+          });
+          setNearbyPeers((previous) => {
+            const next = { ...previous };
+            delete next[participant.identity];
+            return next;
+          });
+          setSpeakingPeers((previous) => {
+            const next = { ...previous };
+            delete next[participant.identity];
+            return next;
+          });
+          setMutedPeers((previous) => {
+            const next = { ...previous };
+            delete next[participant.identity];
+            return next;
+          });
+        };
+        const activeSpeakersChanged = (participants) => {
+          const speaking = {};
+          participants.forEach((participant) => {
+            if (participant.identity !== localUserId) speaking[participant.identity] = true;
+          });
+          setSpeakingPeers(speaking);
+        };
+
+        room.on(RoomEvent.ParticipantConnected, participantConnected);
+        room.on(RoomEvent.TrackPublished, trackPublished);
+        room.on(RoomEvent.TrackSubscribed, trackSubscribed);
+        room.on(RoomEvent.TrackUnsubscribed, trackUnsubscribed);
+        room.on(RoomEvent.ParticipantDisconnected, participantDisconnected);
+        room.on(RoomEvent.ActiveSpeakersChanged, activeSpeakersChanged);
+        room.on(RoomEvent.Connected, () => {
+          if (!cancelled) setVoiceConnectionState('connected');
+        });
+        room.on(RoomEvent.Reconnecting, () => {
+          if (!cancelled) setVoiceConnectionState('reconnecting');
+        });
+        room.on(RoomEvent.Reconnected, () => {
+          if (!cancelled) setVoiceConnectionState('connected');
+        });
+        room.on(RoomEvent.Disconnected, () => {
+          if (!cancelled) setVoiceConnectionState('disconnected');
+        });
+
+        await room.connect(credentials.url, credentials.token, { autoSubscribe: false });
+        if (cancelled) return;
+        syncSubscriptions();
+        const microphoneTrack = localStream.getAudioTracks()[0];
+        if (!microphoneTrack) throw new Error('No microphone track is available to publish.');
+        await room.localParticipant.publishTrack(microphoneTrack, { source: Track.Source.Microphone });
+        if (!cancelled) setVoiceConnectionState('connected');
+      } catch (error) {
+        if (!cancelled && error.name !== 'AbortError') {
+          console.error('[LiveKit] Could not connect to the SFU:', error);
+          if (room) {
+            try {
+              await room.disconnect(false);
+            } catch (cleanupError) {
+              console.warn('[LiveKit] Error closing a failed SFU connection:', cleanupError);
+            }
+          }
+          if (livekitRoomRef.current === room) livekitRoomRef.current = null;
+          setVoiceConnectionState('error');
+          setRtcMode('peer');
+        }
+      }
+    };
+
+    connectRoom();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (livekitRoomRef.current === room) livekitRoomRef.current = null;
+      if (room) {
+        room.disconnect(false).catch((error) => {
+          console.warn('[LiveKit] Could not cleanly disconnect the SFU room:', error);
+        });
+      }
+      setVoiceConnectionState('ready');
+      Object.keys(spatialNodes).forEach(removeRemoteAudio);
+    };
+  }, [token, localStream, officeId, rtcConfigReady, rtcMode, localUserId, attachRemoteAudio, removeRemoteAudio]);
+
+  useEffect(() => {
+    if (!socket || !localStream || !rtcConfigReady || rtcMode === 'livekit') return undefined;
 
     const flushIceQueue = async (peerId, pc) => {
       const queue = iceCandidateQueues.current[peerId] || [];
@@ -246,7 +562,7 @@ export default function useWebRTC(socket, localUserId) {
         return peerConnections.current[peerId];
       }
 
-      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const pc = new RTCPeerConnection(rtcConfig);
 
       // Attach our audio tracks
       localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
@@ -258,57 +574,10 @@ export default function useWebRTC(socket, localUserId) {
         }
       };
 
-      // Play received remote audio with Spatial Audio (Web Audio API)
       pc.ontrack = (event) => {
         console.log(`[WebRTC] Received audio track from ${peerId}`);
         const stream = event.streams[0] || new MediaStream([event.track]);
-        const ctx = getAudioContext();
-
-        if (ctx) {
-          try {
-            // Disconnect old nodes if any
-            if (spatialNodesRef.current[peerId]) {
-              try {
-                spatialNodesRef.current[peerId].source.disconnect();
-                spatialNodesRef.current[peerId].gainNode.disconnect();
-                if (spatialNodesRef.current[peerId].pannerNode) {
-                  spatialNodesRef.current[peerId].pannerNode.disconnect();
-                }
-              } catch (_) {}
-            }
-
-            const source = ctx.createMediaStreamSource(stream);
-            const gainNode = ctx.createGain();
-            const pannerNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-
-            // Connect graph: source -> gain -> panner -> destination
-            if (pannerNode) {
-              source.connect(gainNode);
-              gainNode.connect(pannerNode);
-              pannerNode.connect(ctx.destination);
-            } else {
-              source.connect(gainNode);
-              gainNode.connect(ctx.destination);
-            }
-
-            spatialNodesRef.current[peerId] = { source, gainNode, pannerNode };
-            
-            // Calculate initial distance & gain right away
-            updateSpatialAudio(positionsRef.current.local, positionsRef.current.peers);
-          } catch (err) {
-            console.error('[WebAudio] Error connecting spatial graph for peer', peerId, err);
-          }
-        }
-
-        // Secondary fallback audio element (keeps stream alive in browser background)
-        let audioEl = audioElements.current[peerId];
-        if (!audioEl) {
-          audioEl = new Audio();
-          audioElements.current[peerId] = audioEl;
-        }
-        audioEl.srcObject = stream;
-        audioEl.muted = true; // Output is handled by Web Audio API destination
-        audioEl.play().catch(() => {});
+        attachRemoteAudio(peerId, stream);
       };
 
       pc.onconnectionstatechange = () => {
@@ -322,11 +591,13 @@ export default function useWebRTC(socket, localUserId) {
     const handleEnterRange = async ({ userId: peerId, attenuation = 1.0 }) => {
       console.log(`[WebRTC] Peer entered range: ${peerId} (attenuation: ${attenuation})`);
       peerAttenuationsRef.current[peerId] = attenuation;
-      setPeerAttenuations((prev) => ({ ...prev, [peerId]: attenuation }));
-      setNearbyPeers((prev) => ({ ...prev, [peerId]: true }));
+      setPeerAttenuations((prev) => (
+        prev[peerId] === attenuation ? prev : { ...prev, [peerId]: attenuation }
+      ));
+      setNearbyPeers((prev) => (prev[peerId] ? prev : { ...prev, [peerId]: true }));
 
       // Deterministic initiator logic (lexicographical comparison)
-      if (String(localUserId) > String(peerId)) {
+      if (rtcConfigReady && !peerConnections.current[peerId] && String(localUserId) > String(peerId)) {
         try {
           const pc = createPeerConnection(peerId);
           const offer = await pc.createOffer();
@@ -354,24 +625,7 @@ export default function useWebRTC(socket, localUserId) {
 
       // Smoothly fade out spatial audio
       const nodes = spatialNodesRef.current[peerId];
-      const ctx = audioContextRef.current;
-      if (nodes && ctx) {
-        nodes.gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
-        setTimeout(() => {
-          try {
-            nodes.source.disconnect();
-            nodes.gainNode.disconnect();
-            if (nodes.pannerNode) nodes.pannerNode.disconnect();
-          } catch (_) {}
-          delete spatialNodesRef.current[peerId];
-        }, 100);
-      }
-
-      if (audioElements.current[peerId]) {
-        audioElements.current[peerId].pause();
-        audioElements.current[peerId].srcObject = null;
-        delete audioElements.current[peerId];
-      }
+      if (nodes || audioElements.current[peerId]) removeRemoteAudio(peerId);
 
       if (peerConnections.current[peerId]) {
         peerConnections.current[peerId].close();
@@ -422,28 +676,6 @@ export default function useWebRTC(socket, localUserId) {
       }
     };
 
-    const handleSpeaking = ({ userId, isSpeaking }) => {
-      setSpeakingPeers((prev) => {
-        if (!isSpeaking) {
-          const next = { ...prev };
-          delete next[userId];
-          return next;
-        }
-        return { ...prev, [userId]: true };
-      });
-    };
-
-    const handleMuted = ({ userId, isMuted }) => {
-      setMutedPeers((prev) => {
-        if (!isMuted) {
-          const next = { ...prev };
-          delete next[userId];
-          return next;
-        }
-        return { ...prev, [userId]: true };
-      });
-    };
-
     const handleAttenuationChanged = ({ userId: peerId, attenuation = 1.0 }) => {
       console.log(`[Spatial Audio] Attenuation changed for peer ${peerId}: ${attenuation}`);
       peerAttenuationsRef.current[peerId] = attenuation;
@@ -457,8 +689,12 @@ export default function useWebRTC(socket, localUserId) {
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice-candidate', handleIceCandidate);
-    socket.on('player:speaking', handleSpeaking);
-    socket.on('player:muted', handleMuted);
+
+    if (rtcConfigReady) {
+      Object.keys(nearbyPeersRef.current).forEach((peerId) => {
+        handleEnterRange({ userId: peerId, attenuation: peerAttenuationsRef.current[peerId] ?? 1.0 });
+      });
+    }
 
     return () => {
       socket.off('peer:enter-range', handleEnterRange);
@@ -467,14 +703,14 @@ export default function useWebRTC(socket, localUserId) {
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice-candidate', handleIceCandidate);
-      socket.off('player:speaking', handleSpeaking);
-      socket.off('player:muted', handleMuted);
     };
-  }, [socket, localStream, localUserId, getAudioContext, updateSpatialAudio]);
+  }, [socket, localStream, localUserId, token, rtcConfig, rtcConfigReady, rtcMode, attachRemoteAudio, removeRemoteAudio, getAudioContext, updateSpatialAudio]);
 
   return {
     requestMic,
     micPermissionState,
+    voiceConnectionState,
+    voiceMode: rtcMode,
     isMuted,
     toggleMute,
     nearbyPeers,

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Office = require('../models/Office');
 
 // In-memory cache for office layouts
@@ -18,25 +19,35 @@ const DEFAULT_ZONES = [
   { name: 'LOUNGE', shape: 'rect', x: 710, y: 392, w: 226, h: 186 },
 ];
 
+function makeDefaultOffice(officeId) {
+  return {
+    officeId,
+    name: officeId === 'main-office' ? 'The Commons' : `Office ${officeId}`,
+    width: 1000,
+    height: 700,
+    hearingRadiusPx: 105,
+    obstacles: DEFAULT_OBSTACLES,
+    zones: DEFAULT_ZONES,
+  };
+}
+
 async function getOffice(officeId) {
   if (officeCache.has(officeId)) {
     return officeCache.get(officeId);
   }
 
+  const defaultOffice = makeDefaultOffice(officeId);
+  officeCache.set(officeId, defaultOffice);
+
+  if (mongoose.connection.readyState !== 1) {
+    return defaultOffice;
+  }
+
   let office = await Office.findOne({ officeId }).catch(() => null);
   if (!office) {
-    office = new Office({
-      officeId,
-      name: officeId === 'main-office' ? 'The Commons' : `Office ${officeId}`,
-      width: 1000,
-      height: 700,
-      hearingRadiusPx: 105,
-      obstacles: DEFAULT_OBSTACLES,
-      zones: DEFAULT_ZONES,
-    });
+    office = new Office(defaultOffice);
     await office.save().catch((err) => console.warn('Office seed save warning:', err.message));
   } else if (!office.obstacles || office.obstacles.length === 0) {
-    // Populate default obstacles if empty
     office.obstacles = DEFAULT_OBSTACLES;
     office.zones = DEFAULT_ZONES;
     await office.save().catch(() => {});
@@ -54,6 +65,17 @@ async function updateOffice(officeId, data) {
     if (data[key] !== undefined) {
       updatePayload[key] = data[key];
     }
+  }
+
+  const nextOffice = {
+    ...makeDefaultOffice(officeId),
+    ...officeCache.get(officeId),
+    ...updatePayload,
+  };
+  officeCache.set(officeId, nextOffice);
+
+  if (mongoose.connection.readyState !== 1) {
+    return nextOffice;
   }
 
   const updated = await Office.findOneAndUpdate(

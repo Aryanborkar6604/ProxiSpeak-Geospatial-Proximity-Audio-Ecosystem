@@ -1,21 +1,44 @@
 const constants = require('../config/constants');
 const positionService = require('./position.service');
 const officeService = require('./office.service');
+const { createSpatialIndex } = require('./spatial-index');
 
-let previousProximitySets = {};
-let previousAttenuations = {};
+const previousProximitySets = new Map();
+const previousAttenuations = new Map();
 let isRecomputing = false;
+const recomputeDurations = [];
+let maxRecomputeDurationMs = 0;
 
-// 2D Line Segment Intersection Algorithm
-function ccw(ax, ay, bx, by, cx, cy) {
-  return (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+// 2D line-segment intersection using the standard orientation test.
+function orientation(ax, ay, bx, by, cx, cy) {
+  return (by - ay) * (cx - ax) - (bx - ax) * (cy - ay);
+}
+
+function onSegment(px, py, qx, qy, rx, ry) {
+  return (
+    qx <= Math.max(px, rx) &&
+    qx >= Math.min(px, rx) &&
+    qy <= Math.max(py, ry) &&
+    qy >= Math.min(py, ry)
+  );
 }
 
 function lineSegmentsIntersect(p1x, p1y, p2x, p2y, q1x, q1y, q2x, q2y) {
-  return (
-    ccw(p1x, p1y, q1x, q1y, q2x, q2y) !== ccw(p2x, p2y, q1x, q1y, q2x, q2y) &&
-    ccw(p1x, p1y, p2x, p2y, q1x, q1y) !== ccw(p1x, p1y, p2x, p2y, q2x, q2y)
-  );
+  const o1 = orientation(p1x, p1y, p2x, p2y, q1x, q1y);
+  const o2 = orientation(p1x, p1y, p2x, p2y, q2x, q2y);
+  const o3 = orientation(q1x, q1y, q2x, q2y, p1x, p1y);
+  const o4 = orientation(q1x, q1y, q2x, q2y, p2x, p2y);
+
+  if ((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0)) {
+    return true;
+  }
+
+  if (Math.abs(o1) < 1e-9 && onSegment(p1x, p1y, q1x, q1y, p2x, p2y)) return true;
+  if (Math.abs(o2) < 1e-9 && onSegment(p1x, p1y, q2x, q2y, p2x, p2y)) return true;
+  if (Math.abs(o3) < 1e-9 && onSegment(q1x, q1y, p1x, p1y, q2x, q2y)) return true;
+  if (Math.abs(o4) < 1e-9 && onSegment(q1x, q1y, p2x, p2y, q2x, q2y)) return true;
+
+  return false;
 }
 
 // Compute total attenuation factor from obstacles crossing line of sight
@@ -39,7 +62,7 @@ const meshTelemetry = {
   maxConnectionsObserved: 0,
   lastWarningTime: {},
   getStats: () => {
-    const userCounts = Object.entries(previousProximitySets).map(([uId, set]) => ({
+    const userCounts = [...previousProximitySets.entries()].map(([uId, set]) => ({
       userId: uId,
       peerCount: set.size,
     }));
@@ -57,6 +80,17 @@ const meshTelemetry = {
       reductionRatio: totalUsers > 1 ? `${Math.round((1 - (totalConnections / (totalUsers * (totalUsers - 1)))) * 100)}%` : '0%',
       meshCap: 10,
       sfuEscalationTriggered: maxConnections >= 10,
+      proximityRecompute: {
+        samples: recomputeDurations.length,
+        averageMs: recomputeDurations.length
+          ? Number((recomputeDurations.reduce((sum, duration) => sum + duration, 0) / recomputeDurations.length).toFixed(3))
+          : 0,
+        p95Ms: recomputeDurations.length
+          ? Number([...recomputeDurations].sort((a, b) => a - b)[Math.ceil(recomputeDurations.length * 0.95) - 1].toFixed(3))
+          : 0,
+        maxMs: Number(maxRecomputeDurationMs.toFixed(3)),
+        targetMs: 20,
+      },
     };
   },
 };
@@ -64,12 +98,14 @@ const meshTelemetry = {
 function recomputeProximity(io) {
   if (isRecomputing) return;
   isRecomputing = true;
+  const startedAt = performance.now();
 
   try {
     meshTelemetry.totalChecks += 1;
     const onlineUsers = positionService.getAllActivePositions();
     if (!onlineUsers || onlineUsers.length === 0) {
-      isRecomputing = false;
+      previousProximitySets.clear();
+      previousAttenuations.clear();
       return;
     }
 
@@ -85,27 +121,24 @@ function recomputeProximity(io) {
     for (const [officeId, users] of Object.entries(officeGroups)) {
       const office = officeService.getCachedOffice(officeId);
       const obstacles = office?.obstacles || officeService.DEFAULT_OBSTACLES;
+      const hearingRadius = office?.hearingRadiusPx || constants.HEARING_RADIUS_PX;
+      const spatialIndex = createSpatialIndex(users, hearingRadius);
 
       for (const user of users) {
         const { userId, location } = user;
         if (!location || location.length < 2) continue;
         const [x1, y1] = location;
 
-        // Instant mathematical distance computation (<0.01ms)
-        const inRangeUsers = users.filter((other) => {
-          if (other.userId === userId) return false;
-          if (!other.location || other.location.length < 2) return false;
-          const [x2, y2] = other.location;
-          const dist = Math.hypot(x1 - x2, y1 - y2);
-          return dist <= constants.HEARING_RADIUS_PX;
-        });
+        const inRangeUsers = spatialIndex.nearby(x1, y1, hearingRadius)
+          .filter((other) => other.userId !== userId);
 
         const currentSet = new Set(inRangeUsers.map((u) => u.userId));
-        const prevSet = previousProximitySets[userId] || new Set();
+        const prevSet = previousProximitySets.get(userId) || new Set();
 
-        if (!previousAttenuations[userId]) {
-          previousAttenuations[userId] = {};
+        if (!previousAttenuations.has(userId)) {
+          previousAttenuations.set(userId, {});
         }
+        const userAttenuations = previousAttenuations.get(userId);
 
         // Calculate obstacle attenuation for all in-range peers
         const currentAttenuations = {};
@@ -136,42 +169,46 @@ function recomputeProximity(io) {
         entered.forEach((peerId) => {
           const att = currentAttenuations[peerId] ?? 1.0;
           io.to(`user_${userId}`).emit('peer:enter-range', { userId: peerId, attenuation: att });
-          previousAttenuations[userId][peerId] = att;
+          userAttenuations[peerId] = att;
         });
 
         // Check if attenuation changed for peers that remained in range (e.g. walked behind a wall)
         [...currentSet].forEach((peerId) => {
           if (!entered.includes(peerId)) {
             const currentAtt = currentAttenuations[peerId] ?? 1.0;
-            const prevAtt = previousAttenuations[userId][peerId] ?? 1.0;
+            const prevAtt = userAttenuations[peerId] ?? 1.0;
             if (Math.abs(currentAtt - prevAtt) > 0.05) {
               io.to(`user_${userId}`).emit('peer:attenuation-changed', {
                 userId: peerId,
                 attenuation: currentAtt,
               });
-              previousAttenuations[userId][peerId] = currentAtt;
+              userAttenuations[peerId] = currentAtt;
             }
           }
         });
 
         exited.forEach((peerId) => {
           io.to(`user_${userId}`).emit('peer:exit-range', { userId: peerId });
-          delete previousAttenuations[userId][peerId];
+          delete userAttenuations[peerId];
         });
 
-        previousProximitySets[userId] = currentSet;
+        previousProximitySets.set(userId, currentSet);
       }
     }
   } catch (error) {
     console.error('Proximity recompute error:', error);
   } finally {
+    const duration = performance.now() - startedAt;
+    recomputeDurations.push(duration);
+    if (recomputeDurations.length > 1000) recomputeDurations.shift();
+    maxRecomputeDurationMs = Math.max(maxRecomputeDurationMs, duration);
     isRecomputing = false;
   }
 }
 
 function cleanupUser(userId) {
-  delete previousProximitySets[userId];
-  delete previousAttenuations[userId];
+  previousProximitySets.delete(userId);
+  previousAttenuations.delete(userId);
   delete meshTelemetry.lastWarningTime[userId];
 }
 
@@ -186,8 +223,7 @@ module.exports = {
   startProximityService,
   cleanupUser,
   meshTelemetry,
+  recomputeProximity,
   lineSegmentsIntersect,
   computeObstacleAttenuation,
 };
-
-

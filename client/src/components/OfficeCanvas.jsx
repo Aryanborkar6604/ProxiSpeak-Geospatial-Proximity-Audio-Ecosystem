@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const THROTTLE_MS = 1000 / 15;
-const AVATAR_COLORS = ['#bb806d', '#708b7c', '#95809a', '#ba9d66', '#70859e', '#bf8c77'];
+const AVATAR_COLORS = ['#a66c57', '#607c6b', '#88739a', '#a0804f', '#607994', '#b06f65'];
 
 function labelFor(index) { return `Teammate ${index + 1}`; }
 
@@ -11,6 +11,7 @@ export default function OfficeCanvas({
   localUserId,
   onPeersChange,
   onPositionChange,
+  onFrameRateChange,
   nearbyPeers = {},
   speakingPeers = {},
   mutedPeers = {},
@@ -30,8 +31,10 @@ export default function OfficeCanvas({
 
   const onPeersChangeRef = useRef(onPeersChange);
   const onPositionChangeRef = useRef(onPositionChange);
+  const onFrameRateChangeRef = useRef(onFrameRateChange);
   onPeersChangeRef.current = onPeersChange;
   onPositionChangeRef.current = onPositionChange;
+  onFrameRateChangeRef.current = onFrameRateChange;
 
   const updatePeers = useCallback((next) => {
     peersRef.current = next;
@@ -45,27 +48,9 @@ export default function OfficeCanvas({
     // Send our initial position so others see us immediately
     socket.emit('player:move', { x: localPos.current.x, y: localPos.current.y });
 
-    // Load existing people only if there are new ones
-    if (officeState?.users) {
-      const current = peersRef.current;
-      const initialPeers = { ...current };
-      let hasChanges = false;
-      officeState.users.forEach((u) => {
-        if (u.userId !== localUserId && u.location) {
-          if (!current[u.userId] || current[u.userId].x !== u.location[0] || current[u.userId].y !== u.location[1]) {
-            initialPeers[u.userId] = { x: u.location[0], y: u.location[1] };
-            hasChanges = true;
-          }
-        }
-      });
-      if (hasChanges) {
-        updatePeers(initialPeers);
-      }
-    }
-
-    const handlePlayerMoved = ({ userId, x, y }) => {
+    const handlePlayerMoved = ({ userId, x, y, name }) => {
       if (userId === localUserId) return;
-      updatePeers({ ...peersRef.current, [userId]: { x, y } });
+      updatePeers({ ...peersRef.current, [userId]: { x, y, name } });
     };
     
     const handlePlayerLeft = ({ userId }) => {
@@ -83,11 +68,32 @@ export default function OfficeCanvas({
   }, [socket, localUserId, officeState?.officeId, updatePeers]);
 
   useEffect(() => {
+    const current = peersRef.current;
+    const initialPeers = { ...current };
+    let hasChanges = false;
+
+    (officeState?.users || []).forEach((user) => {
+      if (user.userId !== localUserId && user.location) {
+        if (!current[user.userId] || current[user.userId].x !== user.location[0] || current[user.userId].y !== user.location[1] || current[user.userId].name !== user.name) {
+          initialPeers[user.userId] = { x: user.location[0], y: user.location[1], name: user.name };
+          hasChanges = true;
+        }
+      }
+    });
+
+    if (hasChanges) {
+      updatePeers(initialPeers);
+    }
+  }, [officeState?.users, localUserId, updatePeers]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const ctx = canvas.getContext('2d');
     let frame;
     let pixelRatio = window.devicePixelRatio || 1;
+    let frameCount = 0;
+    let fpsWindowStart = performance.now();
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -101,6 +107,14 @@ export default function OfficeCanvas({
     resize();
 
     const draw = () => {
+      frameCount += 1;
+      const frameNow = performance.now();
+      if (frameNow - fpsWindowStart >= 1000) {
+        onFrameRateChangeRef.current?.(Math.round((frameCount * 1000) / (frameNow - fpsWindowStart)));
+        frameCount = 0;
+        fpsWindowStart = frameNow;
+      }
+
       const width = canvas.width / pixelRatio;
       const height = canvas.height / pixelRatio;
       const sx = width / officeState.width;
@@ -110,13 +124,13 @@ export default function OfficeCanvas({
 
       ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = dark ? '#15161A' : '#f5f4f0';
+      ctx.fillStyle = dark ? '#172019' : '#eef1eb';
       ctx.fillRect(0, 0, width, height);
 
-      // Drafting grid
+      // Survey grid
       ctx.save();
       ctx.scale(sx, sy);
-      ctx.strokeStyle = dark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(67, 77, 70, 0.045)';
+      ctx.strokeStyle = dark ? 'rgba(220, 239, 215, 0.065)' : 'rgba(53, 76, 58, 0.075)';
       ctx.lineWidth = 1;
       for (let x = 0; x <= officeState.width; x += 32) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, officeState.height); ctx.stroke();
@@ -124,13 +138,6 @@ export default function OfficeCanvas({
       for (let y = 0; y <= officeState.height; y += 32) {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(officeState.width, y); ctx.stroke();
       }
-
-      // Soft ambient light
-      const glow = ctx.createRadialGradient(220, 350, 24, 220, 350, 300);
-      glow.addColorStop(0, dark ? 'rgba(47, 211, 139, 0.06)' : 'rgba(96, 157, 132, 0.10)');
-      glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, officeState.width, officeState.height);
 
       // Work areas and furniture
       drawZone(ctx, 73, 87, 252, 172, 'THE LIBRARY', 'soft', dark);
@@ -190,10 +197,10 @@ export default function OfficeCanvas({
       const pulseRadius = 105 + Math.sin(Date.now() / 600) * 2;
       ctx.beginPath();
       ctx.arc(localX, localY, pulseRadius, 0, Math.PI * 2);
-      ctx.fillStyle = dark ? 'rgba(47, 211, 139, 0.04)' : 'rgba(45, 127, 105, 0.035)';
+      ctx.fillStyle = dark ? 'rgba(201, 237, 131, 0.075)' : 'rgba(79, 133, 76, 0.075)';
       ctx.fill();
       ctx.setLineDash([4, 7]);
-      ctx.strokeStyle = dark ? 'rgba(47, 211, 139, 0.28)' : 'rgba(45, 127, 105, 0.22)';
+      ctx.strokeStyle = dark ? 'rgba(201, 237, 131, 0.42)' : 'rgba(65, 119, 69, 0.42)';
       ctx.lineWidth = 1.2;
       ctx.stroke();
       ctx.setLineDash([]);
@@ -213,7 +220,8 @@ export default function OfficeCanvas({
         const isPeerNearby = Boolean(curAudio.nearbyPeers[peerId]);
         const isPeerMuted = Boolean(curAudio.mutedPeers[peerId]);
         const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
-        drawAvatar(ctx, point.x, point.y, getAvatarColor(peerId), labelFor(index), false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
+        const avatarLabel = point.name?.trim().split(/\s+/)[0] || labelFor(index);
+        drawAvatar(ctx, point.x, point.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
       });
       ctx.restore();
       frame = requestAnimationFrame(draw);
@@ -263,20 +271,20 @@ function roundedRect(ctx, x, y, w, h, r) {
 function drawZone(ctx, x, y, w, h, label, tone, isDark = false) {
   ctx.save();
   const fill = tone === 'green'
-    ? (isDark ? 'rgba(70, 123, 101, 0.08)' : 'rgba(70, 123, 101, 0.055)')
+    ? (isDark ? 'rgba(112, 166, 113, 0.13)' : 'rgba(90, 139, 86, 0.10)')
     : tone === 'sand'
-    ? (isDark ? 'rgba(185, 154, 107, 0.09)' : 'rgba(185, 154, 107, 0.065)')
-    : (isDark ? 'rgba(107, 118, 104, 0.05)' : 'rgba(107, 118, 104, 0.035)');
+    ? (isDark ? 'rgba(189, 143, 101, 0.14)' : 'rgba(189, 143, 101, 0.12)')
+    : (isDark ? 'rgba(142, 165, 141, 0.09)' : 'rgba(97, 122, 99, 0.07)');
   ctx.fillStyle = fill;
   roundedRect(ctx, x, y, w, h, 13);
   ctx.fill();
   ctx.setLineDash([3, 5]);
-  ctx.strokeStyle = isDark ? 'rgba(130, 145, 135, 0.25)' : 'rgba(94, 105, 95, 0.19)';
+  ctx.strokeStyle = isDark ? 'rgba(174, 199, 171, 0.3)' : 'rgba(75, 97, 76, 0.25)';
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = isDark ? 'rgba(190, 205, 195, 0.65)' : 'rgba(68, 78, 71, 0.54)';
-  ctx.font = '600 9px Inter, sans-serif';
+  ctx.fillStyle = isDark ? 'rgba(211, 228, 209, 0.78)' : 'rgba(49, 69, 51, 0.72)';
+  ctx.font = '600 9px "DM Sans", sans-serif';
   ctx.letterSpacing = '1.6px';
   ctx.fillText(label, x + 15, y + 20);
   ctx.restore();
@@ -360,12 +368,12 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking = false, isNear
   ctx.save();
   const isMuffled = attenuation < 0.9;
   
-  // Voice Activity Detection: animated glowing emerald wave pulse
+  // Voice activity is distinguished from proximity with a warm signal color.
   if (isSpeaking) {
     const pulse = (Math.sin(Date.now() / 140) + 1) / 2; // 0 to 1 smooth oscillation
     const pulseColor = isMuffled
       ? `rgba(122, 140, 130, ${0.5 - pulse * 0.3})` // Muffled behind wall
-      : `rgba(47, 211, 139, ${0.75 - pulse * 0.45})`;
+      : `rgba(224, 132, 89, ${0.75 - pulse * 0.45})`;
     ctx.strokeStyle = pulseColor;
     ctx.lineWidth = 2.2 + pulse * 1.8;
     ctx.beginPath();
@@ -391,7 +399,7 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking = false, isNear
 
   // 2px Presence Ring per design.md §3.2 & §8 (Obstacle attenuation)
   if (isSpeaking) {
-    ctx.strokeStyle = isMuffled ? '#7A8C82' : '#2FD38B'; // Muffled vs clear speaking
+    ctx.strokeStyle = isMuffled ? '#7A8C82' : '#c06443';
     ctx.lineWidth = 2.5;
     if (isMuffled) ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -399,7 +407,7 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking = false, isNear
     ctx.stroke();
     ctx.setLineDash([]);
   } else if (isNearby) {
-    ctx.strokeStyle = isMuffled ? '#5B666E' : '#1FA896'; // Muffled vs clear nearby
+    ctx.strokeStyle = isMuffled ? '#5B666E' : '#c77c57';
     ctx.lineWidth = 2;
     if (isMuffled) ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -422,7 +430,7 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking = false, isNear
 
   // Avatar initials / text
   ctx.fillStyle = 'rgba(255,255,255,.94)';
-  ctx.font = '600 8px Inter, sans-serif';
+  ctx.font = '600 8px "DM Sans", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(isLocal ? 'YOU' : label.split(' ').map((part) => part[0]).join(''), x, y + 0.5);

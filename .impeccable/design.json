@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-12T20:30:44.4048481+05:30",
+  "title": "Design System: ProxiSpeak",
+  "extensions": {
+    "colorMeta": {
+      "brand": { "role": "primary", "displayName": "Pine Green", "canonical": "#286b5e", "tonalRamp": ["oklch(15% 0.06 170)", "oklch(25% 0.06 170)", "oklch(35% 0.06 170)", "oklch(45% 0.06 170)", "oklch(55% 0.06 170)", "oklch(65% 0.06 170)", "oklch(80% 0.06 170)", "oklch(95% 0.06 170)"] },
+      "brand-hover": { "role": "primary", "displayName": "Deep Pine", "canonical": "#20594e", "tonalRamp": ["oklch(15% 0.06 170)", "oklch(25% 0.06 170)", "oklch(35% 0.06 170)", "oklch(45% 0.06 170)", "oklch(55% 0.06 170)", "oklch(65% 0.06 170)", "oklch(80% 0.06 170)", "oklch(95% 0.06 170)"] },
+      "brand-soft": { "role": "secondary", "displayName": "Pale Sage", "canonical": "#e9f2ea", "tonalRamp": ["oklch(15% 0.02 145)", "oklch(25% 0.02 145)", "oklch(35% 0.02 145)", "oklch(45% 0.02 145)", "oklch(55% 0.02 145)", "oklch(65% 0.02 145)", "oklch(80% 0.02 145)", "oklch(95% 0.02 145)"] },
+      "signal": { "role": "tertiary", "displayName": "Signal Lime", "canonical": "#b7db6d", "tonalRamp": ["oklch(15% 0.12 85)", "oklch(25% 0.12 85)", "oklch(35% 0.12 85)", "oklch(45% 0.12 85)", "oklch(55% 0.12 85)", "oklch(65% 0.12 85)", "oklch(80% 0.12 85)", "oklch(95% 0.12 85)"] },
+      "voice": { "role": "secondary", "displayName": "Warm Terracotta", "canonical": "#c06443", "tonalRamp": ["oklch(15% 0.12 35)", "oklch(25% 0.12 35)", "oklch(35% 0.12 35)", "oklch(45% 0.12 35)", "oklch(55% 0.12 35)", "oklch(65% 0.12 35)", "oklch(80% 0.12 35)", "oklch(95% 0.12 35)"] },
+      "danger": { "role": "secondary", "displayName": "Soft Brick", "canonical": "#a4443b", "tonalRamp": ["oklch(15% 0.13 25)", "oklch(25% 0.13 25)", "oklch(35% 0.13 25)", "oklch(45% 0.13 25)", "oklch(55% 0.13 25)", "oklch(65% 0.13 25)", "oklch(80% 0.13 25)", "oklch(95% 0.13 25)"] },
+      "page": { "role": "neutral", "displayName": "Mineral Page", "canonical": "#f2f4f0", "tonalRamp": ["oklch(15% 0.01 145)", "oklch(25% 0.01 145)", "oklch(35% 0.01 145)", "oklch(45% 0.01 145)", "oklch(55% 0.01 145)", "oklch(65% 0.01 145)", "oklch(80% 0.01 145)", "oklch(95% 0.01 145)"] },
+      "surface": { "role": "neutral", "displayName": "Clean Surface", "canonical": "#ffffff", "tonalRamp": ["oklch(15% 0.005 145)", "oklch(25% 0.005 145)", "oklch(35% 0.005 145)", "oklch(45% 0.005 145)", "oklch(55% 0.005 145)", "oklch(65% 0.005 145)", "oklch(80% 0.005 145)", "oklch(95% 0.005 145)"] },
+      "surface-soft": { "role": "neutral", "displayName": "Soft Surface", "canonical": "#f7f8f5", "tonalRamp": ["oklch(15% 0.005 145)", "oklch(25% 0.005 145)", "oklch(35% 0.005 145)", "oklch(45% 0.005 145)", "oklch(55% 0.005 145)", "oklch(65% 0.005 145)", "oklch(80% 0.005 145)", "oklch(95% 0.005 145)"] },
+      "ink": { "role": "neutral", "displayName": "Pine Ink", "canonical": "#202923", "tonalRamp": ["oklch(15% 0.01 145)", "oklch(25% 0.01 145)", "oklch(35% 0.01 145)", "oklch(45% 0.01 145)", "oklch(55% 0.01 145)", "oklch(65% 0.01 145)", "oklch(80% 0.01 145)", "oklch(95% 0.01 145)"] },
+      "muted": { "role": "neutral", "displayName": "Muted Sage", "canonical": "#738077", "tonalRamp": ["oklch(15% 0.02 145)", "oklch(25% 0.02 145)", "oklch(35% 0.02 145)", "oklch(45% 0.02 145)", "oklch(55% 0.02 145)", "oklch(65% 0.02 145)", "oklch(80% 0.02 145)", "oklch(95% 0.02 145)"] },
+      "line": { "role": "neutral", "displayName": "Fine Divider", "canonical": "#e3e8e1", "tonalRamp": ["oklch(15% 0.008 145)", "oklch(25% 0.008 145)", "oklch(35% 0.008 145)", "oklch(45% 0.008 145)", "oklch(55% 0.008 145)", "oklch(65% 0.008 145)", "oklch(80% 0.008 145)", "oklch(95% 0.008 145)"] },
+      "map-ground": { "role": "neutral", "displayName": "Map Ground", "canonical": "#eef1eb", "tonalRamp": ["oklch(15% 0.015 145)", "oklch(25% 0.015 145)", "oklch(35% 0.015 145)", "oklch(45% 0.015 145)", "oklch(55% 0.015 145)", "oklch(65% 0.015 145)", "oklch(80% 0.015 145)", "oklch(95% 0.015 145)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Manrope Display", "purpose": "Primary auth headline and high-level room identity." },
+      "headline": { "displayName": "Manrope Headline", "purpose": "Workspace title and section headings." },
+      "body": { "displayName": "DM Sans Body", "purpose": "Supporting copy and operational text." },
+      "label": { "displayName": "DM Sans Label", "purpose": "Compact map, section, and state labels." }
+    },
+    "shadows": [
+      { "name": "workspace-surface", "value": "0 18px 45px rgba(26, 40, 31, .07), 0 2px 7px rgba(26, 40, 31, .04)", "purpose": "Lift the central office map from the page." },
+      { "name": "voice-dock", "value": "0 18px 46px rgba(25, 37, 29, .14), 0 2px 7px rgba(25, 37, 29, .06)", "purpose": "Keep the fixed microphone control distinct from map content." }
+    ],
+    "motion": [
+      { "name": "control-state", "value": "150ms ease", "purpose": "Subtle hover, focus, and pressed transitions on controls." },
+      { "name": "voice-mark", "value": "1700ms ease-in-out", "purpose": "Restrained pulse while a teammate is speaking." },
+      { "name": "range-breathe", "value": "3400ms ease-in-out", "purpose": "Slowly communicate the illustrative proximity field on auth screens." }
+    ],
+    "breakpoints": [
+      { "name": "tighten", "value": "1120px" },
+      { "name": "stack", "value": "820px" },
+      { "name": "mobile", "value": "560px" },
+      { "name": "narrow-mobile", "value": "360px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Confident, compact action for the next step.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Invite teammates <svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M10 7a4 4 0 1 0 0 8M19 8v6M22 11h-6\"/></svg></button>",
+      "css": ".ds-button-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 15px; border: 0; border-radius: 10px; background: var(--brand, #286b5e); color: #fff; font: 700 12px 'DM Sans', sans-serif; cursor: pointer; transition: background-color .15s ease, transform .15s ease; } .ds-button-primary svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-button-primary:hover { background: var(--brand-hover, #20594e); } .ds-button-primary:focus-visible { outline: 2px solid #4b8d70; outline-offset: 3px; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "description": "Quiet utility action that gains a surface on hover.",
+      "html": "<button class=\"ds-icon-button\" type=\"button\" aria-label=\"Toggle appearance\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M20.9 13A8.5 8.5 0 0 1 11 3.1 8.5 8.5 0 1 0 20.9 13Z\"/></svg></button>",
+      "css": ".ds-icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--muted, #738077); cursor: pointer; transition: background-color .15s ease, color .15s ease, border-color .15s ease; } .ds-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-icon-button:hover { border-color: var(--line, #e3e8e1); background: var(--surface-soft, #f7f8f5); color: var(--ink, #202923); } .ds-icon-button:focus-visible { outline: 2px solid #4b8d70; outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Labeled, high-contrast field for account and invite details.",
+      "html": "<label class=\"ds-field-label\">Work email<input class=\"ds-field\" type=\"email\" placeholder=\"name@company.com\" /></label>",
+      "css": ".ds-field-label { display: grid; gap: 7px; color: #46544a; font: 700 11px 'DM Sans', sans-serif; } .ds-field { width: 100%; height: 47px; padding: 0 13px; border: 1px solid #dce4dc; border-radius: 9px; background: #fff; color: #26322a; font: 400 13px 'DM Sans', sans-serif; transition: border-color .15s ease, box-shadow .15s ease; } .ds-field::placeholder { color: #859188; opacity: 1; } .ds-field:focus-visible { border-color: #568873; outline: 2px solid #4b8d70; outline-offset: 2px; box-shadow: 0 0 0 3px rgba(53, 121, 87, .12); }"
+    },
+    {
+      "name": "Workspace Navigation",
+      "kind": "nav",
+      "description": "Separates identity and office context from connection and account actions.",
+      "html": "<nav class=\"ds-navigation\" aria-label=\"Workspace\"><span class=\"ds-brand\"><span class=\"ds-mark\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\"><path d=\"M7 7v10m5-13v16m5-11v8\"/></svg></span>proxispeak</span><span class=\"ds-office\">The Commons <small>Team office</small></span><span class=\"ds-connection\"><i></i>Connected</span></nav>",
+      "css": ".ds-navigation { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 28px; border-bottom: 1px solid var(--line, #e3e8e1); background: var(--surface, #fff); color: var(--ink, #202923); font: 500 12px 'DM Sans', sans-serif; } .ds-brand { display: flex; align-items: center; gap: 9px; color: var(--ink, #202923); font: 800 19px 'Manrope', sans-serif; letter-spacing: -.9px; } .ds-mark { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 8px; background: var(--brand, #286b5e); color: #eff6e8; } .ds-mark svg { width: 12px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; } .ds-office { display: grid; gap: 3px; font-weight: 700; } .ds-office small { color: var(--muted, #738077); font-size: 10px; font-weight: 400; } .ds-connection { display: flex; align-items: center; gap: 8px; color: var(--muted, #738077); } .ds-connection i { width: 7px; height: 7px; border-radius: 50%; background: #438765; box-shadow: 0 0 0 3px rgba(67, 135, 101, .13); } @media (max-width: 560px) { .ds-navigation { min-height: 60px; padding: 0 14px; } .ds-office { display: none; } }"
+    },
+    {
+      "name": "Office Map Surface",
+      "kind": "custom",
+      "refersTo": "office-map",
+      "description": "The spatial work surface; zones, range, and avatars carry the meaning.",
+      "html": "<section class=\"ds-map-card\" aria-label=\"Illustrative office map\"><div class=\"ds-map-title\"><span></span>Live office <small>Floor 01</small></div><div class=\"ds-map\"><div class=\"ds-zone ds-library\">The library</div><div class=\"ds-zone ds-studio\">Studio</div><div class=\"ds-range\"></div><span class=\"ds-avatar\">YOU</span></div></section>",
+      "css": ".ds-map-card { overflow: hidden; border: 1px solid var(--line, #e3e8e1); border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 18px 45px rgba(26, 40, 31, .07), 0 2px 7px rgba(26, 40, 31, .04); } .ds-map-title { min-height: 53px; display: flex; align-items: center; gap: 9px; padding: 0 18px; color: #3f4b42; font: 700 10px 'DM Sans', sans-serif; letter-spacing: .1em; text-transform: uppercase; } .ds-map-title span { width: 6px; height: 6px; border-radius: 50%; background: #438765; } .ds-map-title small { margin-left: 5px; padding-left: 10px; border-left: 1px solid #d4ddd3; color: #97a199; font-size: 9px; } .ds-map { min-height: 180px; position: relative; overflow: hidden; margin: 0 10px 10px; border-radius: 8px; background-color: var(--map-ground, #eef1eb); background-image: linear-gradient(rgba(53, 76, 58, .075) 1px, transparent 1px), linear-gradient(90deg, rgba(53, 76, 58, .075) 1px, transparent 1px); background-size: 24px 24px; } .ds-zone { position: absolute; display: grid; place-items: start; padding: 10px; border: 1px dashed rgba(73, 101, 75, .22); border-radius: 12px; color: #738077; font: 700 8px 'DM Sans', sans-serif; letter-spacing: .1em; } .ds-library { inset: 12% auto auto 8%; width: 28%; height: 42%; background: rgba(219, 226, 210, .55); } .ds-studio { inset: 15% 25% auto auto; width: 34%; height: 52%; background: rgba(199, 216, 195, .5); } .ds-range { position: absolute; top: 66%; left: 26%; width: 76px; height: 76px; border: 1px dashed var(--brand, #286b5e); border-radius: 50%; background: rgba(183, 219, 109, .14); transform: translate(-50%, -50%); } .ds-avatar { position: absolute; top: 66%; left: 26%; display: grid; place-items: center; width: 30px; height: 30px; border: 2px solid #fff; border-radius: 50%; background: var(--brand, #286b5e); color: #fff; font: 700 7px 'Manrope', sans-serif; transform: translate(-50%, -50%); }"
+    },
+    {
+      "name": "Presence Row",
+      "kind": "custom",
+      "description": "A teammate name and explicit state with a reinforcing avatar indicator.",
+      "html": "<div class=\"ds-person-row\"><span class=\"ds-person-avatar\">AM<i></i></span><span class=\"ds-person-info\"><strong>Alex Morgan</strong><small>Ready</small></span><span class=\"ds-person-status\">HERE</span></div>",
+      "css": ".ds-person-row { min-height: 62px; display: flex; align-items: center; gap: 11px; padding: 5px 2px; border-bottom: 1px solid var(--line, #e3e8e1); color: var(--ink, #202923); font: 400 10px 'DM Sans', sans-serif; } .ds-person-avatar { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border: 2px solid var(--surface, #fff); border-radius: 13px; background: var(--brand, #286b5e); color: #fff; font: 700 9px 'Manrope', sans-serif; } .ds-person-avatar i { position: absolute; right: -2px; bottom: -1px; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: #7d9780; } .ds-person-info { display: grid; flex: 1; gap: 4px; } .ds-person-info strong { color: #3f4b42; font-size: 11px; } .ds-person-info small { color: var(--muted, #738077); font-size: 10px; } .ds-person-status { color: var(--muted, #738077); font-size: 8px; font-weight: 700; letter-spacing: .08em; }"
+    },
+    {
+      "name": "Microphone Permission",
+      "kind": "custom",
+      "description": "Permission status with a direct, clearly named recovery action.",
+      "html": "<div class=\"ds-mic-banner\"><span class=\"ds-mic-icon\" aria-hidden=\"true\">♫</span><span class=\"ds-mic-copy\"><strong>Microphone access is off</strong><small>Allow access to talk with teammates nearby.</small></span><button class=\"ds-mic-action\" type=\"button\">Enable microphone</button></div>",
+      "css": ".ds-mic-banner { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line, #e3e8e1); border-radius: 10px; background: var(--surface-soft, #f7f8f5); color: var(--ink, #202923); font: 400 10px 'DM Sans', sans-serif; } .ds-mic-icon { width: 36px; height: 36px; flex: 0 0 36px; display: grid; place-items: center; border-radius: 10px; background: var(--brand-soft, #e9f2ea); color: var(--brand, #286b5e); font-size: 18px; } .ds-mic-copy { display: grid; flex: 1; gap: 3px; } .ds-mic-copy strong { font-size: 11px; font-weight: 700; } .ds-mic-copy small { color: var(--muted, #738077); font-size: 10px; line-height: 1.4; } .ds-mic-action { min-height: 39px; padding: 0 13px; border: 0; border-radius: 10px; background: var(--brand, #286b5e); color: #fff; font: 700 11px 'DM Sans', sans-serif; cursor: pointer; } .ds-mic-action:hover { background: var(--brand-hover, #20594e); } .ds-mic-action:focus-visible { outline: 2px solid #4b8d70; outline-offset: 3px; } @media (max-width: 560px) { .ds-mic-banner { gap: 8px; padding: 9px; } .ds-mic-action { min-height: 37px; padding: 0 9px; font-size: 10px; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Acoustic Cartography",
+    "overview": "ProxiSpeak makes shared presence legible as a place. The floor plan is the primary work surface; the teammate rail and microphone state support it without competing for attention. Pine-green identity, mineral map tones, fine measured linework, signal-lime range marks, and warm voice accents translate distance into a calm, readable interface.\n\nThe workspace favors practical density and direct manipulation: teammates can scan the room, search the roster, move around the floor, and reach the microphone control without leaving the map. Sign-in and registration carry the same identity through a dark, illustrative office panel beside a quiet, high-contrast form. The workspace supports both light and dark themes.",
+    "keyCharacteristics": [
+      "Map-first, spatial, and immediately legible.",
+      "Restrained surfaces with precise green, lime, and warm voice-state signals.",
+      "Functional controls remain discoverable across pointer, keyboard, and touch layouts."
+    ],
+    "rules": [
+      { "name": "The Semantic Signal Rule", "body": "Green identifies presence and primary action; lime identifies range; terracotta identifies proximity or voice. Do not interchange these meanings.", "section": "colors" },
+      { "name": "The Two-Family Rule", "body": "Use Manrope for display and title roles; keep operational copy and controls in DM Sans.", "section": "typography" },
+      { "name": "The Few-Lifted-Surfaces Rule", "body": "Keep the roster and map interior quiet; reserve the clearest elevation for the main map, the active voice dock, and the auth illustration.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do make the floor map the dominant workspace surface and keep the roster as its supporting rail.",
+      "Do use semantic colors consistently: green for identity/presence, lime for range, and terracotta for nearby voice.",
+      "Do provide text alongside microphone, connection, and presence indicators.",
+      "Do keep forms scrollable and map interactions usable on touch screens.",
+      "Do preserve a visible keyboard focus indicator and the reduced-motion treatment."
+    ],
+    "donts": [
+      "Don't replace the spatial office with a generic stack of dashboard cards.",
+      "Don't suggest the sign-in illustration is live team data; it is labeled as an illustration.",
+      "Don't use color alone to describe microphone permission, voice, connection, or account state.",
+      "Don't let fixed controls cover the map, roster, or a form action on small screens."
+    ]
+  }
+}

@@ -11,8 +11,10 @@ const positionSchema = new mongoose.Schema({
   isMuted: { type: Boolean, default: false }
 }, { timestamps: true });
 
-// 2d index on location for geospatial queries with pixel bounds (0-2000px)
-positionSchema.index({ location: '2d' }, { min: -5000, max: 5000 });
+// Compound 2d index supports office-scoped $near and $geoWithin lookups.
+positionSchema.index(
+  { officeId: 1, isOnline: 1, location: '2d' },
+  { min: -5000, max: 5000, name: 'office_online_location_2d' },
+);
 
 module.exports = mongoose.model('Position', positionSchema);
-
