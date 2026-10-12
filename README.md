@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ProxiSpeak
 
 A single shared virtual office for the Infotact team. The React app draws one overhead office on an HTML Canvas; users move continuously with held WASD/arrow keys or walk smoothly toward a clicked destination. Socket.io broadcasts rounded coordinates at up to 20 updates per second while moving, plus the final position when movement stops. The server sends peer presence only within a 170-pixel earshot radius. When users enable their microphones, the browser negotiates WebRTC audio with nearby users and uses the Web Audio API for distance attenuation and left/right stereo panning.
@@ -22,3 +23,7 @@ The server creates `people.location` as a GeoJSON `Point` and creates a `2dspher
 - `server/index.js` — Express health/cluster endpoints, Socket.io signaling, MongoDB geospatial persistence and proximity filtering.
 
 The current signaling topology is a peer-to-peer mesh, suited to a small team prototype. A 50+ person production office should move audio to an SFU (such as LiveKit/mediasoup) and use Redis-backed Socket.io adapters across server instances; a full mesh is not efficient at that scale.
+=======
+# ProxiSpeak-Geospatial-Proximity-Audio-Ecosystem
+ProxiSpeak is a real-time virtual office collaboration platform that leverages React, Node.js, Socket.io, MongoDB geospatial queries, WebRTC, and the Web Audio API to deliver proximity-based voice communication, spatial audio, and seamless interactions among users in a shared virtual workspace.
+>>>>>>> origin/arpitzade1573-spec!
