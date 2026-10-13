@@ -1,3 +1,4 @@
+
 # ProxiSpeak — Development Phases
 
 **Status:** Draft v1.0 · **Companion to:** `prd.md`, `trd.md`, `architecture.md`, `design.md`, `security.md`, `rules.md`

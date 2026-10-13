@@ -1,3 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  /* Neutrals — the office floor */
+  --ps-bg-canvas: #f8f8f5;
+  --ps-bg-canvas-dark: #15161A;
+  --ps-surface: #FFFFFF;
+  --ps-surface-dark: #1E2024;
+  --ps-surface-translucent: rgba(255, 255, 255, 0.72);
+  --ps-surface-translucent-dark: rgba(30, 32, 36, 0.72);
+  --ps-border: #E3E1DC;
+  --ps-border-dark: #2C2E33;
+
+  /* Text */
+  --ps-ink-900: #1B1C1E;
+  --ps-ink-600: #55585E;
+  --ps-ink-400: #8B8F96;
+  --ps-ink-inverse: #F5F5F4;
+
+  /* Brand accent — Proximity Teal */
+  --ps-accent-500: #1FA896;
+  --ps-accent-600: #16806F;
+  --ps-accent-100: #E3F6F2;
+
+  /* Presence / audio states */
+  --ps-speaking: #2FD38B;
+  --ps-nearby: #1FA896;
+  --ps-muted: #B9BCC2;
+  --ps-offline: #DADCE0;
+  --ps-alert: #E2574C;
+
+  /* Obstacles / walls */
+  --ps-wall: #3A3D42;
+  --ps-wall-dark: #8C959C;
+}
+
+@theme {
+  --color-ps-bg: var(--ps-bg-canvas);
+  --color-ps-surface: var(--ps-surface);
+  --color-ps-border: var(--ps-border);
+  --color-ps-ink-900: var(--ps-ink-900);
+  --color-ps-ink-600: var(--ps-ink-600);
+  --color-ps-ink-400: var(--ps-ink-400);
+  --color-ps-accent: var(--ps-accent-500);
+  --color-ps-accent-hover: var(--ps-accent-600);
+  --color-ps-speaking: var(--ps-speaking);
+  --color-ps-nearby: var(--ps-nearby);
+  --color-ps-muted: var(--ps-muted);
+  --color-ps-wall: var(--ps-wall);
+}
+
 html { min-width: 320px; min-height: 100%; background: #f8f8f5; }
 body { min-width: 320px; min-height: 100vh; margin: 0; }
 #root { min-height: 100vh; }

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { toast, Toaster } from 'sonner';
 import useWebRTC from './hooks/useWebRTC';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './components/ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import './App.css';
 import {
   ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Mic,
   MicOff, Moon, Search,
-  ShieldCheck, Sparkles, Sun, UserPlus, Users, Wifi, X,
+  ShieldCheck, Sparkles, Sun, UserPlus, Users, Wifi,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
 
@@ -24,10 +28,14 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || `${getBackendBase()}/api`;
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || getBackendBase();
 
 function App() {
+  const reducedMotion = useReducedMotion();
   const [socket, setSocket] = useState(null);
   const [token, setToken] = useState(() => sessionStorage.getItem('token'));
   const [userId, setUserId] = useState(() => sessionStorage.getItem('userId'));
   const [userName, setUserName] = useState(() => sessionStorage.getItem('userName') || 'You');
+  const [currentPath, setCurrentPath] = useState(() => (
+    typeof window !== 'undefined' ? window.location.pathname : '/'
+  ));
   const [authMode, setAuthMode] = useState(() => (
     typeof window !== 'undefined' && window.location.pathname === '/register' ? 'register' : 'login'
   ));
@@ -76,12 +84,23 @@ function App() {
     setCanvasFps((currentFps) => (currentFps === fps ? currentFps : fps));
   }, []);
 
+  const navigateTo = (path, replace = false) => {
+    const nextUrl = `${path}${window.location.search}`;
+    if (replace) {
+      window.history.replaceState({}, '', nextUrl);
+    } else {
+      window.history.pushState({}, '', nextUrl);
+    }
+    setCurrentPath(path);
+    if (path === '/login' || path === '/register') {
+      setAuthMode(path === '/register' ? 'register' : 'login');
+    }
+  };
+
   const changeAuthMode = (mode) => {
-    setAuthMode(mode);
     setAuthError('');
     setShowPassword(false);
-    const nextPath = mode === 'register' ? '/register' : '/login';
-    window.history.pushState({}, '', `${nextPath}${window.location.search}`);
+    navigateTo(mode === 'register' ? '/register' : '/login');
   };
 
   const toggleTheme = () => {
@@ -100,7 +119,9 @@ function App() {
 
   useEffect(() => {
     const handleHistoryChange = () => {
-      setAuthMode(window.location.pathname === '/register' ? 'register' : 'login');
+      const nextPath = window.location.pathname;
+      setCurrentPath(nextPath);
+      setAuthMode(nextPath === '/register' ? 'register' : 'login');
       setAuthError('');
       setShowPassword(false);
     };
@@ -138,6 +159,8 @@ function App() {
         setUserId(null);
         setUserName('You');
         setAuthError(error.message || 'Your session could not be verified. Please sign in again.');
+        setCurrentPath('/login');
+        window.history.replaceState({}, '', `/login${window.location.search}`);
       })
       .finally(() => {
         if (!controller.signal.aborted) setAuthChecking(false);
@@ -162,6 +185,9 @@ function App() {
       setUserId(null);
       setUserName('You');
       setAuthError('Your session expired. Sign in again to rejoin your office.');
+      setAuthMode('login');
+      setCurrentPath('/login');
+      window.history.replaceState({}, '', `/login${window.location.search}`);
     });
     nextSocket.on('connect_error', (error) => {
       if (error.message.includes('Authentication error')) {
@@ -174,6 +200,9 @@ function App() {
         setToken(null);
         setUserId(null);
         setUserName('You');
+        setAuthMode('login');
+        setCurrentPath('/login');
+        window.history.replaceState({}, '', `/login${window.location.search}`);
       }
     });
     setSocket(nextSocket);
@@ -207,6 +236,7 @@ function App() {
       sessionStorage.setItem('userId', result.user.userId);
       sessionStorage.setItem('userName', result.user.name);
       window.history.replaceState({}, '', `/${window.location.search}`);
+      setCurrentPath('/');
       setAuthChecking(true);
       setUserId(result.user.userId);
       setUserName(result.user.name);
@@ -222,6 +252,7 @@ function App() {
     const url = `${window.location.origin}/?office=${currentOfficeId}`;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
+    toast.success('Office link copied to clipboard!');
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
@@ -235,11 +266,12 @@ function App() {
     setToken(null);
     setAuthError('');
     setAuthMode('login');
-    window.history.replaceState({}, '', `/${window.location.search}`);
+    navigateTo('/', true);
     setUserId(null);
     setUserName('You');
     setOfficeState(null);
     setPeers({});
+    toast.info('Signed out of office.');
   };
 
   const handlePositionChange = useCallback((myPos, curPeers) => {
@@ -265,11 +297,29 @@ function App() {
 
   if (!token) {
     const isRegister = authMode === 'register';
+    const isAuthRoute = currentPath === '/login' || currentPath === '/register';
     return (
-      <main className="login-shell">
+      <AnimatePresence mode="wait" initial={false}>
+      {isAuthRoute ? (
+      <motion.main
+        key="authentication"
+        className="login-shell"
+        initial={reducedMotion ? false : { opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={reducedMotion ? undefined : { opacity: 0, y: -8 }}
+        transition={{ duration: reducedMotion ? 0 : 0.38, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div className="login-visual">
-          <div className="login-topline"><Brand /><span className="login-note"><ShieldCheck size={15} /> Sign in to your office</span></div>
-          <div className="login-copy">
+          <div className="login-topline">
+            <a className="landing-brand-link" href="/" aria-label="ProxiSpeak home"><Brand /></a>
+            <span className="login-note"><ShieldCheck size={15} /> Your shared office</span>
+          </div>
+          <motion.div
+            className="login-copy"
+            initial={reducedMotion ? false : { opacity: 0, x: -18 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.52, delay: reducedMotion ? 0 : 0.1, ease: [0.16, 1, 0.3, 1] }}
+          >
             <h1>Good work happens<br /><em>within earshot.</em></h1>
             <p>A shared office where you can see your team, move around the floor, and talk when you’re nearby.</p>
             <div className="auth-map-preview" role="img" aria-label="Illustration of an office floor and a nearby voice range">
@@ -284,11 +334,20 @@ function App() {
               </div>
               <div className="auth-map-legend"><i /><span>VOICE RANGE</span><i className="auth-legend-person" /><span>TEAM PRESENCE</span></div>
             </div>
-          </div>
+          </motion.div>
           <div className="login-visual-footer"><span>PROXIMITY, MADE HUMAN</span><span>PROXISPEAK</span></div>
         </div>
         <section className="login-panel">
-          <div className="login-panel-inner" aria-labelledby="auth-title">
+          <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={isRegister ? 'register' : 'login'}
+            className="login-panel-inner"
+            initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reducedMotion ? undefined : { opacity: 0, y: -5 }}
+            transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.16, 1, 0.3, 1] }}
+            aria-labelledby="auth-title"
+          >
             <div className="auth-panel-label"><span className="auth-panel-mark" /><span>{isRegister ? 'CREATE AN ACCOUNT' : 'WELCOME BACK'}</span></div>
             <h2 id="auth-title">{isRegister ? 'Join your team.' : 'Sign in to your office.'}</h2>
             <p className="login-subtitle">
@@ -368,17 +427,25 @@ function App() {
             <div className="login-privacy"><ShieldCheck size={15} /><span>Audio is live only when you choose to join.</span></div>
             <div className="login-bottom">
               <span>{isRegister ? 'Already have an account?' : 'New to ProxiSpeak?'}</span>
-              <button
-                type="button"
+              <a
                 className="text-button"
-                onClick={() => changeAuthMode(isRegister ? 'login' : 'register')}
+                href={`${isRegister ? '/login' : '/register'}${window.location.search}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  changeAuthMode(isRegister ? 'login' : 'register');
+                }}
               >
                 {isRegister ? 'Sign in' : 'Create an account'}
-              </button>
+              </a>
             </div>
-          </div>
+          </motion.div>
+          </AnimatePresence>
         </section>
-      </main>
+      </motion.main>
+      ) : (
+        <LandingPage key="landing" onNavigate={changeAuthMode} />
+      )}
+      </AnimatePresence>
     );
   }
 
@@ -391,23 +458,37 @@ function App() {
   }
 
   return (
-    <main className={`app-shell ${isDarkMode ? 'dark-theme' : ''}`}>
+    <TooltipProvider>
+      <main className={`app-shell ${isDarkMode ? 'dark-theme' : ''}`}>
       <header className="topbar">
         <div className="topbar-brand"><Brand /><span className="topbar-divider" /><div className="office-switcher" aria-label={`Current office: ${officeName}`}><span className="office-icon">C</span><span><strong>{officeName}</strong><small>Team office</small></span></div></div>
         <div className="topbar-center"><span className="connection-indicator" role="status"><span className={connected ? 'live-dot' : 'live-dot is-offline'} />{connected ? 'Connected' : 'Reconnecting'}</span><span className="topbar-separator" /><span className="privacy-label"><ShieldCheck size={14} /> Signed in</span></div>
         <div className="topbar-actions">
-          <button
-            className="icon-button theme-toggle-button"
-            onClick={toggleTheme}
-            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            aria-label="Toggle theme"
-          >
-            {isDarkMode ? <Sun size={17} /> : <Moon size={17} />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="icon-button theme-toggle-button"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+              >
+                {isDarkMode ? <Sun size={17} /> : <Moon size={17} />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}</TooltipContent>
+          </Tooltip>
           <button className="button button-primary invite-button" onClick={() => setShowInviteModal(true)}>
             <UserPlus size={14} /> <span>Invite</span>
           </button>
-          <button className="profile-button" onClick={logout} title="Sign out" aria-label={`Sign out ${userName}`}><span className="profile-avatar">{initials(userName)}</span><span className="profile-name">{userName}</span><LogOut size={15} /></button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="profile-button" onClick={logout} aria-label={`Sign out ${userName}`}>
+                <span className="profile-avatar">{initials(userName)}</span>
+                <span className="profile-name">{userName}</span>
+                <LogOut size={15} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Sign out</TooltipContent>
+          </Tooltip>
         </div>
       </header>
 
@@ -422,10 +503,10 @@ function App() {
             <div className="map-topline"><div className="map-title"><span className="map-live-dot" /><span>LIVE OFFICE</span><span className="map-coordinates">/ FLOOR 01</span></div><div className="map-actions"><span className="map-legend"><i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall</span></div></div>
             <div className="office-map-wrap">
               <OfficeCanvas 
-                socket={socket} 
-                officeState={officeState} 
-                localUserId={userId} 
-                onPeersChange={setPeers} 
+                socket={socket}
+                officeState={officeState}
+                localUserId={userId}
+                onPeersChange={setPeers}
                 onPositionChange={handlePositionChange}
                 onFrameRateChange={handleFrameRateChange}
                 nearbyPeers={webrtcPeers}
@@ -520,7 +601,12 @@ function App() {
         </aside>
       </div>
 
-      <div className="control-dock">
+      <motion.div
+        className="control-dock"
+        initial={{ y: 28, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 350, damping: 26 }}
+      >
         {micPermissionState !== 'granted' ? (
           <div className={`mic-access-banner ${micPermissionState === 'insecure_context' ? 'is-insecure' : ''}`} role="status">
             <span className="mic-access-icon"><Mic size={17} /></span>
@@ -534,15 +620,22 @@ function App() {
           <>
             <div className="dock-context"><span className="dock-avatar">{initials(userName)}</span><span><strong>You’re in the office</strong><small>Walking around is always okay</small></span></div>
             <div className="dock-controls">
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.96 }}
                 className={`mic-button ${muted ? 'is-muted' : ''} ${isSpeaking ? 'is-speaking-btn' : ''}`}
-                onClick={setMuted}
+                onClick={() => {
+                  setMuted();
+                  toast(muted ? 'Microphone unmuted' : 'Microphone muted', {
+                    description: muted ? 'Teammates within hearing range can hear you.' : 'Your microphone is now muted.',
+                  });
+                }}
                 aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
                 title="Toggle Microphone"
               >
                 <span className="mic-icon-wrap">{muted ? <MicOff size={18} /> : <Mic size={18} />}</span>
                 <span>{muted ? 'Mic off' : (isSpeaking ? 'Speaking' : 'Mic on')}</span>
-              </button>
+              </motion.button>
             </div>
             <div className="dock-hint">
               <span className={`sound-wave ${isSpeaking ? 'is-active' : ''}`}>
@@ -556,49 +649,241 @@ function App() {
             </div>
           </>
         )}
-      </div>
+      </motion.div>
 
-      {showInviteModal && (
-        <div className="invite-modal-overlay" onClick={() => setShowInviteModal(false)}>
-          <section className="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title" onClick={(e) => e.stopPropagation()}>
-            <div className="invite-modal-header">
-              <div>
-                <span className="overline">INVITE TEAMMATES</span>
-                <h2 id="invite-title">Bring your team in</h2>
-              </div>
-              <button className="icon-button" type="button" onClick={() => setShowInviteModal(false)} aria-label="Close invite dialog">
-                <X size={18} />
+      <Dialog open={showInviteModal} onOpenChange={setShowInviteModal}>
+        <DialogContent className="max-w-[480px]">
+          <DialogHeader>
+            <span className="overline">INVITE TEAMMATES</span>
+            <DialogTitle>Bring your team in</DialogTitle>
+            <DialogDescription>
+              Share this office link with a teammate. They can sign in or create an account, then join you on the floor.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="invite-field-group">
+            <label htmlFor="office-invite-link">Office link</label>
+            <div className="invite-input-row">
+              <input id="office-invite-link" readOnly value={`${window.location.origin}/?office=${currentOfficeId}`} />
+              <button className="button button-primary" type="button" onClick={handleCopyMain}>
+                {copiedLink ? <><Check size={14} style={{ marginRight: 4 }} /> Copied!</> : <><Copy size={14} style={{ marginRight: 4 }} /> Copy Link</>}
               </button>
             </div>
+          </div>
 
-            <p className="invite-desc">
-              Share this office link with a teammate. They can sign in or create an account, then join you on the floor.
-            </p>
-
-            <div className="invite-field-group">
-              <label htmlFor="office-invite-link">Office link</label>
-              <div className="invite-input-row">
-                <input id="office-invite-link" readOnly value={`${window.location.origin}/?office=${currentOfficeId}`} />
-                <button className="button button-primary" type="button" onClick={handleCopyMain}>
-                  {copiedLink ? <><Check size={14} style={{ marginRight: 4 }} /> Copied!</> : <><Copy size={14} style={{ marginRight: 4 }} /> Copy Link</>}
-                </button>
-              </div>
-            </div>
-
-            <div className="invite-steps">
-              <h4>Once they’re in</h4>
-              <ol>
-                <li>They sign in or create their account.</li>
-                <li>They allow microphone access over a secure connection.</li>
-                <li>Move close together on the floor to talk.</li>
-              </ol>
-            </div>
-          </section>
-        </div>
-      )}
+          <div className="invite-steps">
+            <h4>Once they’re in</h4>
+            <ol>
+              <li>They sign in or create their account.</li>
+              <li>They allow microphone access over a secure connection.</li>
+              <li>Move close together on the floor to talk.</li>
+            </ol>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <footer className="app-footer"><span>PROXISPEAK <i>·</i> A MORE HUMAN WAY TO WORK</span><span><Wifi size={13} /> {voiceMode === 'livekit' ? `SFU ${voiceConnectionState}` : 'Peer audio'} <span className="footer-divider">/</span>{canvasFps || '—'} FPS <span className="footer-divider">/</span> Built for being together</span></footer>
+      <Toaster position="bottom-right" richColors theme={isDarkMode ? 'dark' : 'light'} />
     </main>
+  </TooltipProvider>
+  );
+}
+
+function LandingPage({ onNavigate }) {
+  const reducedMotion = useReducedMotion();
+  const [distance, setDistance] = useState(62);
+  const nearby = distance <= 34;
+  const teammateX = 316 + distance * 1.9;
+  const authHref = (mode) => `/${mode}${window.location.search}`;
+  const navigateToAuth = (mode) => (event) => {
+    event.preventDefault();
+    onNavigate(mode);
+  };
+  const motionEase = [0.16, 1, 0.3, 1];
+
+  return (
+    <motion.main
+      className="landing-shell"
+      initial={reducedMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={reducedMotion ? undefined : { opacity: 0 }}
+      transition={{ duration: reducedMotion ? 0 : 0.3 }}
+    >
+      <header className="landing-nav">
+        <a className="landing-brand-link" href="/" aria-label="ProxiSpeak home"><Brand /></a>
+        <nav className="landing-nav-links" aria-label="Main navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#your-office">Your office</a>
+        </nav>
+        <div className="landing-nav-actions">
+          <a className="landing-signin" href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
+          <a className="button button-primary landing-nav-cta" href={authHref('register')} onClick={navigateToAuth('register')}>
+            Create your office <ArrowUpRight size={16} />
+          </a>
+        </div>
+      </header>
+
+      <section className="landing-hero" aria-labelledby="landing-title">
+        <motion.div
+          className="landing-hero-copy"
+          initial={reducedMotion ? false : { opacity: 0, x: -22, filter: 'blur(5px)' }}
+          animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+          transition={{ duration: reducedMotion ? 0 : 0.62, ease: motionEase }}
+        >
+          <h1 id="landing-title">Good work happens <em>within earshot.</em></h1>
+          <p>Skip the meeting link for the little things. See your team, walk over, and talk when it makes sense.</p>
+          <div className="landing-hero-actions">
+            <a className="button button-primary landing-primary-button" href={authHref('register')} onClick={navigateToAuth('register')}>
+              Step into your office <ArrowUpRight size={17} />
+            </a>
+            <a className="landing-secondary-action" href={authHref('login')} onClick={navigateToAuth('login')}>
+              I already have an account
+            </a>
+          </div>
+          <p className="landing-trust-note"><ShieldCheck size={15} /> Your microphone stays off until you choose to turn it on.</p>
+        </motion.div>
+
+        <motion.section
+          className="landing-demo"
+          aria-label="Interactive demonstration of proximity-based voice"
+          initial={reducedMotion ? false : { opacity: 0, y: 20, scale: 0.985 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: reducedMotion ? 0 : 0.7, delay: reducedMotion ? 0 : 0.08, ease: motionEase }}
+        >
+          <div className="landing-demo-header">
+            <span><AudioLines size={16} /> THE COMMONS <i /> FLOOR 01</span>
+            <span className="landing-demo-badge">ILLUSTRATIVE DEMO</span>
+          </div>
+          <div className="landing-map">
+            <svg viewBox="0 0 760 450" role="img" aria-label={`Illustrative shared office. Maya is ${nearby ? 'within' : 'outside'} voice range. This is sample data, not a live team.`}>
+              <defs>
+                <pattern id="landing-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+                  <path d="M32 0H0V32" fill="none" stroke="currentColor" strokeOpacity=".09" strokeWidth="1" />
+                </pattern>
+              </defs>
+              <rect width="760" height="450" fill="url(#landing-grid)" />
+              <rect className="landing-zone landing-zone-library" x="45" y="48" width="220" height="164" rx="16" />
+              <rect className="landing-zone landing-zone-studio" x="316" y="42" width="370" height="221" rx="16" />
+              <rect className="landing-zone landing-zone-lounge" x="500" y="301" width="190" height="105" rx="16" />
+              <text className="landing-zone-label" x="65" y="75">THE LIBRARY</text>
+              <text className="landing-zone-label" x="340" y="70">STUDIO</text>
+              <text className="landing-zone-label" x="520" y="329">LOUNGE</text>
+              <g className="landing-map-furniture">
+                <rect x="76" y="103" width="126" height="31" rx="9" />
+                <rect x="340" y="99" width="124" height="32" rx="9" />
+                <rect x="497" y="99" width="124" height="32" rx="9" />
+                <rect x="340" y="166" width="124" height="32" rx="9" />
+                <rect x="497" y="166" width="124" height="32" rx="9" />
+                <rect x="530" y="352" width="116" height="30" rx="15" />
+              </g>
+              <circle className="landing-proximity-ring" cx="258" cy="277" r="126" />
+              <motion.line
+                className={`landing-voice-link ${nearby ? 'is-nearby' : ''}`}
+                x1="258"
+                y1="277"
+                x2={teammateX}
+                y2="277"
+                initial={false}
+                animate={{ opacity: nearby ? 0.85 : 0.26 }}
+                transition={{ duration: reducedMotion ? 0 : 0.35, ease: motionEase }}
+              />
+              <g className="landing-avatar landing-avatar-you" transform="translate(258 277)">
+                <circle className="landing-avatar-halo" r="22" />
+                <circle className="landing-avatar-core" r="17" />
+                <text y="4">YOU</text>
+                <text className="landing-avatar-name" y="47">YOUR SPACE</text>
+              </g>
+              <g transform="translate(316 277)">
+                <motion.g
+                  className={`landing-avatar landing-avatar-teammate ${nearby ? 'is-nearby' : ''}`}
+                  initial={false}
+                  animate={{ x: distance * 1.9 }}
+                  transition={{ duration: reducedMotion ? 0 : 0.52, ease: motionEase }}
+                >
+                  <circle className="landing-avatar-halo" r="22" />
+                  <circle className="landing-avatar-core" r="17" />
+                  <text y="4">M</text>
+                  <text className="landing-avatar-name" y={nearby ? 63 : 47}>MAYA · SAMPLE</text>
+                </motion.g>
+              </g>
+              {nearby && (
+                <g transform={`translate(${(258 + teammateX) / 2} 277)`}>
+                  <motion.g
+                    className="landing-audio-pulse"
+                    initial={reducedMotion ? false : { opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: reducedMotion ? 0 : 0.28, ease: motionEase }}
+                  >
+                    <path d="M-7 -8Q1 0 -7 8M0 -13Q13 0 0 13M7 -18Q25 0 7 18" />
+                  </motion.g>
+                </g>
+              )}
+            </svg>
+          </div>
+          <div className="landing-demo-controls">
+            <div className="landing-distance-copy">
+              <span className={`landing-distance-status ${nearby ? 'is-nearby' : ''}`} role="status" aria-live="polite">
+                <i /> {nearby ? 'WITHIN VOICE RANGE' : 'ACROSS THE ROOM'}
+              </span>
+              <label htmlFor="proximity-distance">Move Maya closer</label>
+            </div>
+            <input
+              id="proximity-distance"
+              aria-label="Move Maya closer or farther away"
+              type="range"
+              min="0"
+              max="100"
+              value={distance}
+              aria-valuetext={nearby ? 'Within voice range' : 'Across the room'}
+              onChange={(event) => setDistance(Number(event.target.value))}
+            />
+            <span className="landing-range-label">FAR</span>
+          </div>
+          <p className="landing-demo-caption">Move a teammate. Watch the voice range respond.</p>
+        </motion.section>
+      </section>
+
+      <section className="landing-how" id="how-it-works" aria-labelledby="landing-how-title">
+        <div className="landing-how-heading">
+          <h2 id="landing-how-title">A room that makes the next conversation easier.</h2>
+          <p>Presence is more than a green dot. In ProxiSpeak, where someone is changes how you connect.</p>
+        </div>
+        <div className="landing-how-steps">
+          <article>
+            <span>01</span>
+            <div><h3>See who's around.</h3><p>Your team shares one live office map, so presence has a place.</p></div>
+            <Users size={20} aria-hidden="true" />
+          </article>
+          <article>
+            <span>02</span>
+            <div><h3>Move closer.</h3><p>Walk with your keyboard or move across the floor with a pointer.</p></div>
+            <Command size={20} aria-hidden="true" />
+          </article>
+          <article>
+            <span>03</span>
+            <div><h3>Talk when it fits.</h3><p>Nearby voice follows distance. Your microphone stays in your control.</p></div>
+            <AudioLines size={20} aria-hidden="true" />
+          </article>
+        </div>
+      </section>
+
+      <section className="landing-close" id="your-office" aria-labelledby="landing-close-title">
+        <div>
+          <h2 id="landing-close-title">Make room for the conversations in between.</h2>
+          <p>Start with an account. Your team can meet you on the floor.</p>
+        </div>
+        <a className="button landing-close-button" href={authHref('register')} onClick={navigateToAuth('register')}>
+          Create your account <ArrowUpRight size={17} />
+        </a>
+      </section>
+
+      <footer className="landing-footer">
+        <a className="landing-brand-link" href="/" aria-label="ProxiSpeak home"><Brand /></a>
+        <span>Proximity, made human.</span>
+        <a href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
+        <span className="landing-demo-footnote">Map illustration uses sample data; no team members are shown here.</span>
+      </footer>
+    </motion.main>
   );
 }
 

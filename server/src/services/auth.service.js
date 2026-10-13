@@ -8,16 +8,27 @@ const User = require('../models/User');
 const PASSWORD_ROUNDS = 12;
 const SESSION_TTL = '8h';
 
+// In-memory fallback caches when database is disconnected or in local mode
+const memoryUsersByEmail = new Map();
+const memoryUsersById = new Map();
+
+function isDbConnected() {
+  return mongoose.connection.readyState === 1;
+}
+
+function ensureDbConnection() {
+  if (!isDbConnected()) {
+    try {
+      const connectDB = require('../config/db');
+      connectDB().catch(() => {});
+    } catch (_) {}
+  }
+}
+
 function createAuthError(statusCode, message) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
-}
-
-function requireDatabase() {
-  if (mongoose.connection.readyState !== 1) {
-    throw createAuthError(503, 'Account services are unavailable until MongoDB reconnects.');
-  }
 }
 
 function serializeUser(user) {
@@ -35,11 +46,23 @@ function createSession(user) {
 }
 
 async function findUserByEmail(email) {
-  const exactMatch = await User.findOne({ email }).select('+passwordHash');
-  if (exactMatch) return exactMatch;
+  const normalized = String(email || '').trim().toLowerCase();
+  
+  if (isDbConnected()) {
+    try {
+      const exactMatch = await User.findOne({ email: normalized }).select('+passwordHash');
+      if (exactMatch) return exactMatch;
 
-  const escapedEmail = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ email: new RegExp(`^${escapedEmail}$`, 'i') }).select('+passwordHash');
+      const escapedEmail = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const caseMatch = await User.findOne({ email: new RegExp(`^${escapedEmail}$`, 'i') }).select('+passwordHash');
+      if (caseMatch) return caseMatch;
+    } catch (err) {
+      console.warn('[auth] Error querying MongoDB user, falling back to memory:', err.message);
+    }
+  }
+
+  // Memory fallback
+  return memoryUsersByEmail.get(normalized) || null;
 }
 
 function validateCredentials({ name, email, password }, includeName = false) {
@@ -61,7 +84,7 @@ function validateCredentials({ name, email, password }, includeName = false) {
 }
 
 async function registerUser(input) {
-  requireDatabase();
+  ensureDbConnection();
   const credentials = validateCredentials(input, true);
   const existing = await findUserByEmail(credentials.email);
   if (existing?.passwordHash) {
@@ -69,33 +92,55 @@ async function registerUser(input) {
   }
 
   const passwordHash = await bcrypt.hash(credentials.password, PASSWORD_ROUNDS);
-  try {
-    if (existing) {
-      existing.name = credentials.name;
-      existing.email = credentials.email;
-      existing.passwordHash = passwordHash;
-      existing.isActive = true;
-      await existing.save();
-      return createSession(existing);
-    }
 
-    const user = await User.create({
-      userId: `usr_${crypto.randomUUID()}`,
-      name: credentials.name,
-      email: credentials.email,
-      passwordHash,
-    });
-    return createSession(user);
-  } catch (error) {
-    if (error.code === 11000) {
-      throw createAuthError(409, 'An account with this email already exists. Sign in instead.');
+  if (isDbConnected()) {
+    try {
+      if (existing && existing.save) {
+        existing.name = credentials.name;
+        existing.email = credentials.email;
+        existing.passwordHash = passwordHash;
+        existing.isActive = true;
+        await existing.save();
+        const session = createSession(existing);
+        memoryUsersByEmail.set(credentials.email, existing);
+        memoryUsersById.set(existing.userId, existing);
+        return session;
+      }
+
+      const user = await User.create({
+        userId: `usr_${crypto.randomUUID()}`,
+        name: credentials.name,
+        email: credentials.email,
+        passwordHash,
+      });
+      const session = createSession(user);
+      memoryUsersByEmail.set(credentials.email, user);
+      memoryUsersById.set(user.userId, user);
+      return session;
+    } catch (error) {
+      if (error.code === 11000) {
+        throw createAuthError(409, 'An account with this email already exists. Sign in instead.');
+      }
+      console.warn('[auth] MongoDB register write error, saving to memory fallback:', error.message);
     }
-    throw error;
   }
+
+  // Fallback in-memory registration
+  const memoryUser = {
+    userId: `usr_${crypto.randomUUID()}`,
+    name: credentials.name,
+    email: credentials.email,
+    passwordHash,
+    avatarColor: '#1FA896',
+    isActive: true,
+  };
+  memoryUsersByEmail.set(credentials.email, memoryUser);
+  memoryUsersById.set(memoryUser.userId, memoryUser);
+  return createSession(memoryUser);
 }
 
 async function loginUser(input) {
-  requireDatabase();
+  ensureDbConnection();
   const credentials = validateCredentials(input);
   const user = await findUserByEmail(credentials.email);
   if (!user || user.isActive === false || !user.passwordHash) {
@@ -107,19 +152,34 @@ async function loginUser(input) {
     throw createAuthError(401, 'Email or password is incorrect.');
   }
 
-  user.lastLoginAt = new Date();
-  await user.save();
+  if (user.save) {
+    user.lastLoginAt = new Date();
+    await user.save().catch(() => {});
+  }
   return createSession(user);
 }
 
 async function getAuthenticatedUser(userId) {
-  requireDatabase();
   if (typeof userId !== 'string' || !userId) return null;
 
-  const user = await User.findOne({ userId })
-    .select('userId name email avatarColor isActive');
-  if (!user || user.isActive === false) return null;
-  return serializeUser(user);
+  if (isDbConnected()) {
+    try {
+      const user = await User.findOne({ userId })
+        .select('userId name email avatarColor isActive');
+      if (user && user.isActive !== false) {
+        return serializeUser(user);
+      }
+    } catch (err) {
+      console.warn('[auth] Error in getAuthenticatedUser, falling back to memory:', err.message);
+    }
+  }
+
+  const memoryUser = memoryUsersById.get(userId);
+  if (memoryUser && memoryUser.isActive !== false) {
+    return serializeUser(memoryUser);
+  }
+
+  return null;
 }
 
 module.exports = {
