@@ -18,6 +18,7 @@ const Icon = ({ name, size = 18 }) => {
 function App() {
   const canvasRef = useRef(null), socketRef = useRef(null), meRef = useRef(null), peersRef = useRef(new Map()), audioRef = useRef(null), positionRef = useRef({ x: 500, y: 335 }), movementRef = useRef({ keys: new Set(), target: null, lastFrame: 0, lastBroadcast: 0, lastUi: 0, dirty: false });
   const [me, setMe] = useState(null), [peers, setPeers] = useState(demoPeople), [earshot, setEarshot] = useState([]), [connected, setConnected] = useState(false), [micOn, setMicOn] = useState(false), [muted, setMuted] = useState(false), [view, setView] = useState('Office'), [toast, setToast] = useState(''), [sidebarCollapsed, setSidebarCollapsed] = useState(false), [openMenu, setOpenMenu] = useState(''), [displayName, setDisplayName] = useState('');
+  const [authUser, setAuthUser] = useState(null), [authChecked, setAuthChecked] = useState(false), [authMode, setAuthMode] = useState('login'), [authName, setAuthName] = useState(''), [authEmail, setAuthEmail] = useState(''), [authPassword, setAuthPassword] = useState(''), [authError, setAuthError] = useState(''), [authBusy, setAuthBusy] = useState(false);
   const people = me ? [...peers.filter(p => p.id !== me.id), me] : peers;
   const nearby = me ? peers.filter(p => Math.hypot((p.x || 0) - me.x, (p.y || 0) - me.y) < RANGE) : [];
   const actualNearby = peers.filter(p => !p.demo && earshot.includes(p.id));
@@ -25,7 +26,14 @@ function App() {
   useEffect(() => { if (me?.name) setDisplayName(me.name); }, [me?.name]);
 
   useEffect(() => {
-    const socket = io({ autoConnect: true }); socketRef.current = socket;
+    let active = true;
+    fetch('/api/auth/me', { credentials: 'include' }).then(response => response.ok ? response.json() : null).then(result => { if (active && result?.user) setAuthUser(result.user); }).catch(() => {}).finally(() => { if (active) setAuthChecked(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) { setConnected(false); setMe(null); meRef.current = null; return; }
+    const socket = io({ autoConnect: true, withCredentials: true }); socketRef.current = socket;
     socket.on('connect', () => setConnected(true)); socket.on('disconnect', () => setConnected(false));
     socket.on('welcome', ({ user }) => { meRef.current = user; window.__meId = user.id; positionRef.current = { x: user.x, y: user.y }; setMe(user); });
     socket.on('presence', ({ peers: next, earshot: ids }) => { setEarshot(ids); setPeers(previous => { const demos = previous.filter(p => p.demo); return [...demos, ...next.map(p => ({ ...p, x: p.x ?? p.location?.coordinates?.[0] }))]; }); });
@@ -34,7 +42,7 @@ function App() {
     socket.on('user-left', id => { setPeers(curr => curr.filter(p => p.id !== id)); closePeer(id); });
     socket.on('signal', async ({ from, description, candidate }) => { let pc = peersRef.current.get(from); if (!pc) pc = createPeer(from, false); try { if (description) { await pc.setRemoteDescription(description); if (description.type === 'offer') { const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); socket.emit('signal', { to: from, description: pc.localDescription }); } } if (candidate) await pc.addIceCandidate(candidate); } catch {} });
     return () => { socket.disconnect(); peersRef.current.forEach(pc => pc.close()); };
-  }, []);
+  }, [authUser?.id]);
 
   function moveTo(x, y) { movementRef.current.target = { x: Math.max(40, Math.min(960, x)), y: Math.max(40, Math.min(620, y)) }; }
   useEffect(() => {
@@ -119,6 +127,24 @@ function App() {
     if (micOn) { audioRef.current?.stream?.getTracks().forEach(t => t.stop()); peersRef.current.forEach(pc => pc.getSenders().forEach(s => s.track?.kind === 'audio' && pc.removeTrack(s))); audioRef.current = null; setMicOn(false); return; }
     try { const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false }); const context = new AudioContext(); audioRef.current = { stream, context }; setMicOn(true); setToast('Mic is on. Walk close to someone to start a conversation.'); setTimeout(() => setToast(''), 3200); } catch { setToast('Microphone access was blocked. Check your browser permissions.'); setTimeout(() => setToast(''), 3200); }
   }
+  async function submitAuth(e) {
+    e.preventDefault(); setAuthError(''); setAuthBusy(true);
+    try {
+      const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+      const body = authMode === 'register' ? { name: authName, email: authEmail, password: authPassword } : { email: authEmail, password: authPassword };
+      const response = await fetch(endpoint, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not sign you in. Please try again.');
+      setAuthUser(result.user); setAuthPassword(''); setAuthName('');
+    } catch (err) { setAuthError(err.message || 'The server could not be reached. Is it running?'); }
+    finally { setAuthBusy(false); }
+  }
+  async function signOut() {
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch {}
+    audioRef.current?.stream?.getTracks().forEach(track => track.stop()); audioRef.current?.context?.close();
+    peersRef.current.forEach(pc => pc.close()); peersRef.current.clear();
+    setMicOn(false); setMuted(false); setMe(null); meRef.current = null; setPeers(demoPeople); setEarshot([]); setOpenMenu(''); setAuthUser(null);
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return; const ctx = canvas.getContext('2d'); let raf;
@@ -174,6 +200,8 @@ function App() {
   function inviteTeam() { navigator.clipboard?.writeText(location.href); notify('Office link copied — invite someone in!'); }
   function saveProfile() { socketRef.current?.emit('profile', { name: displayName.trim() || 'Teammate', role: me?.role || 'In the office' }); notify('Your little profile is saved.'); }
   function enterRoom(room) { moveTo(room.x, room.y); setView('Office'); notify(`On your way to ${room.name.toLowerCase()}…`); }
+  if (!authChecked) return <main className="auth-screen"><div className="auth-card auth-loading"><div className="brand-mark"><Icon name="logo" size={20}/></div><p>Opening the office…</p></div></main>;
+  if (!authUser) return <main className="auth-screen"><section className="auth-card"><div className="auth-brand"><div className="brand-mark"><Icon name="logo" size={20}/></div><span>proxi<span className="brand-light">speak</span></span></div><div className="auth-illustration" aria-hidden="true"><span>🌿</span><span>☕</span><span>💬</span><div>✿</div></div><div className="eyebrow">YOUR INFOTACT OFFICE</div><h1>{authMode === 'login' ? 'Come on in.' : 'Make yourself at home.'}</h1><p className="auth-subtitle">{authMode === 'login' ? 'Sign in to see who’s around and say hello.' : 'Create an account to join your team’s virtual office.'}</p><form className="auth-form" onSubmit={submitAuth}>{authMode === 'register' && <label>Your name<input autoComplete="name" value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="e.g. Alex Rivera" required maxLength={60}/></label>}<label>Email address<input type="email" autoComplete="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="you@infotact.com" required/></label><label>Password<input type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder={authMode === 'login' ? 'Your password' : 'At least 8 characters'} required minLength={authMode === 'register' ? 8 : undefined}/></label>{authError&&<div className="auth-error" role="alert">{authError}</div>}<button className="auth-submit" disabled={authBusy}>{authBusy ? 'One moment…' : authMode === 'login' ? 'Sign in to the office →' : 'Create your account →'}</button></form><p className="auth-switch">{authMode === 'login' ? 'New to ProxiSpeak?' : 'Already have an account?'} <button onClick={()=>{setAuthMode(authMode==='login'?'register':'login');setAuthError('')}}>{authMode === 'login' ? 'Create an account' : 'Sign in'}</button></p><div className="auth-footnote">A cozy little space for your team <span>✿</span></div></section></main>;
   return <div className="app-shell">
     <aside className={`sidebar ${sidebarCollapsed?'is-collapsed':''}`}>
       <div className="brand"><div className="brand-mark"><Icon name="logo" size={20}/></div><span>proxi<span className="brand-light">speak</span></span><button aria-label="Collapse sidebar" className="icon-button sidebar-menu" onClick={()=>setSidebarCollapsed(v=>!v)}><Icon name="menu"/></button></div>
@@ -191,7 +219,7 @@ function App() {
     </aside>
     <main className={`main ${sidebarCollapsed?'sidebar-is-collapsed':''}`}>
       <header className="topbar"><div className="breadcrumb"><span>Infotact</span><b>✿</b><strong>{view}</strong></div><div className="top-actions"><div className="connection"><i className={connected?'online':''}/>{connected?'All cozy & connected':'Finding the office…'}</div><button className="help-btn" onClick={()=>setOpenMenu(openMenu==='help'?'':'help')}>? <span>Need a hand?</span></button><button className="header-avatar" aria-label="Open your profile menu" onClick={()=>setOpenMenu(openMenu==='profile'?'':'profile')}>{me?.name?.charAt(0)||'Y'}</button>
-        {openMenu==='profile'&&<div className="header-dropdown"><strong>Your little profile</strong><button onClick={()=>{setView('Settings');setOpenMenu('')}}>✎ Edit your name</button><button onClick={()=>{toggleMic();setOpenMenu('')}}>🎙 {micOn?'Turn mic off':'Turn mic on'}</button><button onClick={()=>{setView('Office');setOpenMenu('')}}>⌂ Back to the office</button></div>}
+        {openMenu==='profile'&&<div className="header-dropdown"><strong>Your little profile</strong><button onClick={()=>{setView('Settings');setOpenMenu('')}}>✎ Edit your name</button><button onClick={()=>{toggleMic();setOpenMenu('')}}>🎙 {micOn?'Turn mic off':'Turn mic on'}</button><button onClick={()=>{setView('Office');setOpenMenu('')}}>⌂ Back to the office</button><button className="sign-out-action" onClick={signOut}>↪ Sign out</button></div>}
         {openMenu==='help'&&<div className="header-dropdown help-dropdown"><strong>A few friendly tips</strong><p>Click a spot to stroll over, or use WASD / arrow keys. Turn your mic on and get close to say hello.</p><button onClick={()=>{setView('Rooms');setOpenMenu('')}}>Take me to the rooms →</button><button onClick={()=>setOpenMenu('')}>Got it, thanks!</button></div>}
       </div></header>
       <section className="content">
