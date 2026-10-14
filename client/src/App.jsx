@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { toast, Toaster } from 'sonner';
@@ -7,11 +7,12 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import './App.css';
 import {
-  ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Mic,
-  MicOff, Moon, Search,
-  ShieldCheck, Sparkles, Sun, UserPlus, Users, Wifi,
+  Activity, ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Mic,
+  MicOff, Moon, Radio, Search,
+  Share2, ShieldCheck, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
+import { playSpatialPing, toggleAmbientSound } from './utils/audioFx';
 
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const colors = ['#e6b29f', '#9aaca0', '#c2a6be', '#d7bd89', '#9daec7', '#cf9b88'];
@@ -26,6 +27,51 @@ const getBackendBase = () => {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || `${getBackendBase()}/api`;
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL || getBackendBase();
+
+const isPrivateOrLoopbackHostname = (hostname) => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    normalized === 'localhost'
+    || normalized.endsWith('.localhost')
+    || normalized.endsWith('.local')
+    || normalized === '::1'
+    || (
+      normalized.includes(':')
+      && (normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:'))
+    )
+  ) {
+    return true;
+  }
+
+  const octets = normalized.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  return octets[0] === 10
+    || octets[0] === 127
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    || (octets[0] === 192 && octets[1] === 168)
+    || (octets[0] === 169 && octets[1] === 254);
+};
+
+const getPublicAppOrigin = () => {
+  if (typeof window === 'undefined') return '';
+
+  const configuredOrigin = import.meta.env.VITE_PUBLIC_APP_URL?.trim();
+  try {
+    const publicUrl = new URL(configuredOrigin || window.location.origin);
+    if (
+      !['https:', 'http:'].includes(publicUrl.protocol)
+      || isPrivateOrLoopbackHostname(publicUrl.hostname)
+    ) {
+      return '';
+    }
+    return publicUrl.origin;
+  } catch {
+    return '';
+  }
+};
 
 function App() {
   const reducedMotion = useReducedMotion();
@@ -54,6 +100,9 @@ function App() {
   const [peers, setPeers] = useState({});
   const [authError, setAuthError] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
+  const [serverBusy, setServerBusy] = useState(false);
+  const serverRequestCount = useRef(0);
+  const serverBusyTimer = useRef(null);
   const [currentOfficeId] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -61,6 +110,23 @@ function App() {
     }
     return 'main-office';
   });
+  const runWithServerActivity = useCallback(async (request) => {
+    serverRequestCount.current += 1;
+    if (serverRequestCount.current === 1) {
+      serverBusyTimer.current = window.setTimeout(() => setServerBusy(true), 450);
+    }
+
+    try {
+      return await request();
+    } finally {
+      serverRequestCount.current = Math.max(0, serverRequestCount.current - 1);
+      if (serverRequestCount.current === 0) {
+        window.clearTimeout(serverBusyTimer.current);
+        serverBusyTimer.current = null;
+        setServerBusy(false);
+      }
+    }
+  }, []);
   const {
     requestMic,
     micPermissionState,
@@ -75,11 +141,25 @@ function App() {
     speakingPeers,
     mutedPeers,
     peerAttenuations,
-  } = useWebRTC(socket, userId, token, currentOfficeId);
+  } = useWebRTC(socket, userId, token, currentOfficeId, runWithServerActivity);
   const [search, setSearch] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const publicAppOrigin = getPublicAppOrigin();
+  const inviteUrl = useMemo(() => {
+    if (!publicAppOrigin) return '';
+    const url = new URL('/', publicAppOrigin);
+    url.searchParams.set('office', currentOfficeId);
+    return url.toString();
+  }, [currentOfficeId, publicAppOrigin]);
   const [canvasFps, setCanvasFps] = useState(0);
+  const [isAmbienceOn, setIsAmbienceOn] = useState(false);
+  const [localCoords, setLocalCoords] = useState({ x: 175, y: 335 });
+
+  useEffect(() => {
+    document.body.classList.toggle('server-busy', serverBusy);
+    return () => document.body.classList.remove('server-busy');
+  }, [serverBusy]);
   const handleFrameRateChange = useCallback((fps) => {
     setCanvasFps((currentFps) => (currentFps === fps ? currentFps : fps));
   }, []);
@@ -135,12 +215,14 @@ function App() {
     }
 
     const controller = new AbortController();
-    fetch(`${API_BASE_URL}/auth/me`, {
+    runWithServerActivity(async () => {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
+        signal: controller.signal,
+      });
+      return { response, result: await response.json() };
     })
-      .then(async (response) => {
-        const result = await response.json();
+      .then(({ response, result }) => {
         if (!response.ok || !result.user) {
           throw new Error(result.error || 'Your session could not be verified. Please sign in again.');
         }
@@ -167,7 +249,7 @@ function App() {
       });
 
     return () => controller.abort();
-  }, [token]);
+  }, [token, runWithServerActivity]);
 
   useEffect(() => {
     if (!token || authChecking) return undefined;
@@ -225,12 +307,14 @@ function App() {
         password,
       };
       if (authMode === 'register') payload.name = form.get('name');
-      const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const { response, result } = await runWithServerActivity(async () => {
+        const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        return { response, result: await response.json() };
       });
-      const result = await response.json();
       if (!response.ok || !result.token) throw new Error(result.error || 'We could not sign you in. Please try again.');
       sessionStorage.setItem('token', result.token);
       sessionStorage.setItem('userId', result.user.userId);
@@ -248,12 +332,36 @@ function App() {
     }
   };
 
-  const handleCopyMain = () => {
-    const url = `${window.location.origin}/?office=${currentOfficeId}`;
-    navigator.clipboard.writeText(url);
-    setCopiedLink(true);
-    toast.success('Office link copied to clipboard!');
-    setTimeout(() => setCopiedLink(false), 2000);
+  const handleCopyMain = async () => {
+    if (!inviteUrl) {
+      toast.error('Public invite link is not configured', {
+        description: 'Set VITE_PUBLIC_APP_URL to your deployed website address.',
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopiedLink(true);
+      toast.success('Office link copied to clipboard!');
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      toast.error('Could not copy the office link', {
+        description: 'Check your browser clipboard permissions and try again.',
+      });
+    }
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!inviteUrl) {
+      toast.error('Public invite link is not configured', {
+        description: 'Set VITE_PUBLIC_APP_URL to your deployed website address.',
+      });
+      return;
+    }
+
+    const message = `Join me in our ProxiSpeak office: ${inviteUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   const logout = () => {
@@ -275,8 +383,58 @@ function App() {
   };
 
   const handlePositionChange = useCallback((myPos, curPeers) => {
+    setLocalCoords(myPos);
     updateSpatialAudio(myPos, curPeers);
   }, [updateSpatialAudio]);
+
+  const closestPeerInfo = useMemo(() => {
+    const peerEntries = Object.entries(peers);
+    if (peerEntries.length === 0) return null;
+    let minPeer = null;
+    let minDist = Infinity;
+    peerEntries.forEach(([id, pos]) => {
+      if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+        const dx = pos.x - localCoords.x;
+        const dy = pos.y - localCoords.y;
+        const d = Math.hypot(dx, dy);
+        if (d < minDist) {
+          minDist = d;
+          const att = peerAttenuations[id] ?? 1.0;
+          const inRange = d <= (officeState?.hearingRadiusPx || 105);
+          minPeer = {
+            id,
+            name: pos.name || `Teammate`,
+            dist: Math.round(d),
+            dx,
+            dy,
+            att,
+            inRange,
+            volumePct: Math.round(Math.max(0, 1 - d / (officeState?.hearingRadiusPx || 105)) * att * 100),
+          };
+        }
+      }
+    });
+    return minPeer;
+  }, [peers, localCoords, peerAttenuations, officeState?.hearingRadiusPx]);
+
+  const handleTestPing = () => {
+    playSpatialPing();
+    toast.success('3D Spatial Acoustic Ping Emitted', {
+      description: 'Audio panned dynamically across left & right ear channels.',
+    });
+  };
+
+  const handleToggleAmbience = () => {
+    const active = toggleAmbientSound('drone');
+    setIsAmbienceOn(active);
+    if (active) {
+      toast.success('Spatial Focus Ambience Activated', {
+        description: 'Binaural focus drone playing softly in background.',
+      });
+    } else {
+      toast.info('Spatial Ambience Deactivated');
+    }
+  };
 
   const people = useMemo(() => {
     const self = userId ? [{ id: userId, name: userName || 'You', self: true, position: null }] : [];
@@ -292,13 +450,15 @@ function App() {
   const visiblePeople = people.filter((person) => person.name.toLowerCase().includes(search.toLowerCase()));
 
   if (token && authChecking) {
-    return <main className="loading-screen auth-verifying"><Brand /><div className="loading-indicator" /><span>Verifying your account…</span></main>;
+    return <main className="loading-screen auth-verifying"><ServerBusyIndicator active={serverBusy} /><Brand /><div className="loading-indicator" /><span>Verifying your account…</span></main>;
   }
 
   if (!token) {
     const isRegister = authMode === 'register';
     const isAuthRoute = currentPath === '/login' || currentPath === '/register';
     return (
+      <>
+      <ServerBusyIndicator active={serverBusy} />
       <AnimatePresence mode="wait" initial={false}>
       {isAuthRoute ? (
       <motion.main
@@ -328,6 +488,8 @@ function App() {
                 <span className="auth-room room-library">THE LIBRARY</span>
                 <span className="auth-room room-studio">STUDIO</span>
                 <span className="auth-room room-lounge">LOUNGE</span>
+                <span className="auth-map-voice-link" aria-hidden="true" />
+                <span className="auth-map-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
                 <span className="auth-range" />
                 <span className="auth-map-person auth-map-you">YOU</span>
                 <span className="auth-map-person auth-map-teammate">TEAMMATE</span>
@@ -348,7 +510,6 @@ function App() {
             transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.16, 1, 0.3, 1] }}
             aria-labelledby="auth-title"
           >
-            <div className="auth-panel-label"><span className="auth-panel-mark" /><span>{isRegister ? 'CREATE AN ACCOUNT' : 'WELCOME BACK'}</span></div>
             <h2 id="auth-title">{isRegister ? 'Join your team.' : 'Sign in to your office.'}</h2>
             <p className="login-subtitle">
               {isRegister ? 'Set up your account to step into the office.' : 'Sign in to join your team’s shared space.'}
@@ -446,6 +607,7 @@ function App() {
         <LandingPage key="landing" onNavigate={changeAuthMode} />
       )}
       </AnimatePresence>
+      </>
     );
   }
 
@@ -454,16 +616,45 @@ function App() {
   const waveScale = Math.max(0.55, Math.min(2.2, localVolume * 2.2));
 
   if (!officeState) {
-    return <main className="loading-screen"><Brand /><div className="loading-indicator" /><span>Preparing your space…</span><button className="text-button" onClick={logout}>Sign out</button></main>;
+    return <main className="loading-screen"><ServerBusyIndicator active={serverBusy} /><Brand /><div className="loading-indicator" /><span>Preparing your space…</span><button className="text-button" onClick={logout}>Sign out</button></main>;
   }
 
   return (
     <TooltipProvider>
       <main className={`app-shell ${isDarkMode ? 'dark-theme' : ''}`}>
+      <ServerBusyIndicator active={serverBusy} />
       <header className="topbar">
         <div className="topbar-brand"><Brand /><span className="topbar-divider" /><div className="office-switcher" aria-label={`Current office: ${officeName}`}><span className="office-icon">C</span><span><strong>{officeName}</strong><small>Team office</small></span></div></div>
         <div className="topbar-center"><span className="connection-indicator" role="status"><span className={connected ? 'live-dot' : 'live-dot is-offline'} />{connected ? 'Connected' : 'Reconnecting'}</span><span className="topbar-separator" /><span className="privacy-label"><ShieldCheck size={14} /> Signed in</span></div>
         <div className="topbar-actions">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="button button-secondary text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:border-emerald-500 text-emerald-400 font-semibold"
+                onClick={handleTestPing}
+                aria-label="Test 3D Spatial Audio Ping"
+              >
+                <Radio size={14} className="text-emerald-400 animate-pulse" />
+                <span>3D Ping</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Emit binaural acoustic ping across Left & Right ear channels</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className={`button text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${isAmbienceOn ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500' : 'button-secondary border-white/10 text-gray-300'}`}
+                onClick={handleToggleAmbience}
+                aria-label="Toggle Spatial Ambience"
+              >
+                <Sparkles size={14} />
+                <span>{isAmbienceOn ? 'Ambience: On' : 'Ambience'}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Synthesize calming spatial focus drone in background</TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -527,6 +718,47 @@ function App() {
         <aside className="people-sidebar">
           <div className="sidebar-heading"><div><div className="eyebrow muted-eyebrow">YOUR WORKSPACE</div><h2>In this office</h2></div></div>
           <div className="sidebar-summary"><div className="summary-icon"><Users size={16} /></div><div><strong>{people.length} {people.length === 1 ? 'person' : 'people'} around</strong><span>{people.length > 1 ? 'Your office is coming to life' : 'You’re the first one in'}</span></div></div>
+
+          {/* Futuristic Live Spatial Radar Telemetry */}
+          <div className="radar-hud-card">
+            <div className="radar-hud-topline">
+              <span className="radar-live-beacon" />
+              <strong>SPATIAL AUDIO RADAR</strong>
+              <span className="radar-status-badge">15Hz MESH</span>
+            </div>
+            {closestPeerInfo ? (
+              <div className="radar-telemetry-body">
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Nearest Teammate</span>
+                  <strong className="radar-peer-name">{closestPeerInfo.name}</strong>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Proximity Distance</span>
+                  <span className={closestPeerInfo.inRange ? 'radar-tag-in-range' : 'radar-tag-out'}>
+                    {closestPeerInfo.dist} px {closestPeerInfo.inRange ? '• IN RANGE' : '• DISTANT'}
+                  </span>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Acoustic Gain</span>
+                  <span className="radar-gain-val">
+                    {closestPeerInfo.volumePct}% {closestPeerInfo.att < 0.9 ? '(WALL ATTENUATED)' : '(CLEAR LOS)'}
+                  </span>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Binaural Stereo Pan</span>
+                  <span className="radar-pan-val">
+                    {closestPeerInfo.dx < -10 ? `◀ Left ${Math.abs(Math.round(closestPeerInfo.dx / 105 * 100))}%` : closestPeerInfo.dx > 10 ? `Right ${Math.round(closestPeerInfo.dx / 105 * 100)}% ▶` : 'Center 0°'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="radar-idle-note">
+                <Activity size={14} className="radar-idle-icon text-cyan-400" />
+                <span>Move near teammates to view real-time decibels, stereo pan, and acoustic wall muffling.</span>
+              </div>
+            )}
+          </div>
+
           <label className="people-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a teammate" aria-label="Find a teammate" /></label>
           <div className="people-section-label"><span>TEAMMATES</span><span>{people.length.toString().padStart(2, '0')}</span></div>
           <div className="people-list">
@@ -618,7 +850,7 @@ function App() {
           </div>
         ) : (
           <>
-            <div className="dock-context"><span className="dock-avatar">{initials(userName)}</span><span><strong>You’re in the office</strong><small>Walking around is always okay</small></span></div>
+            <div className="dock-context"><span className="dock-avatar">{initials(userName)}</span><span><strong>Spatial Audio Mesh</strong><small>3D Panning Active</small></span></div>
             <div className="dock-controls">
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -627,25 +859,40 @@ function App() {
                 onClick={() => {
                   setMuted();
                   toast(muted ? 'Microphone unmuted' : 'Microphone muted', {
-                    description: muted ? 'Teammates within hearing range can hear you.' : 'Your microphone is now muted.',
+                    description: muted ? 'Teammates within range can hear you.' : 'Your audio is now muted.',
                   });
                 }}
                 aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
-                title="Toggle Microphone"
+                title="Toggle Microphone (M)"
               >
                 <span className="mic-icon-wrap">{muted ? <MicOff size={18} /> : <Mic size={18} />}</span>
-                <span>{muted ? 'Mic off' : (isSpeaking ? 'Speaking' : 'Mic on')}</span>
+                <span>{muted ? 'Mic off' : (isSpeaking ? 'Broadcasting' : 'Mic on')}</span>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="button button-secondary dock-ping-btn"
+                onClick={handleTestPing}
+                title="Test 3D Spatial Audio Ping"
+                style={{ height: 38, padding: '0 10px', borderRadius: 10, fontSize: 10, gap: 5 }}
+              >
+                <Radio size={14} className="text-emerald-400" />
+                <span>Ping</span>
               </motion.button>
             </div>
             <div className="dock-hint">
               <span className={`sound-wave ${isSpeaking ? 'is-active' : ''}`}>
-                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
-                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
-                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
-                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
-                <i style={{ transform: isSpeaking ? `scaleY(${waveScale})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.5, waveScale * 0.9)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.7, waveScale * 1.4)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.9, waveScale * 1.9)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(1.1, waveScale * 2.3)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(1.0, waveScale * 2.0)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.8, waveScale * 1.5)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.6, waveScale * 1.1)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.5, waveScale * 0.8)})` : undefined }} />
               </span>
-              <span>{isSpeaking ? <b className="voice-speaking-label">Speaking…</b> : (muted ? <b>Microphone muted</b> : <>Nearby voice <b>ready</b></>)}</span>
+              <span>{isSpeaking ? <b className="voice-speaking-label">Speaking live…</b> : (muted ? <b>Microphone muted</b> : <>Voice horizon <b>active</b></>)}</span>
             </div>
           </>
         )}
@@ -657,18 +904,22 @@ function App() {
             <span className="overline">INVITE TEAMMATES</span>
             <DialogTitle>Bring your team in</DialogTitle>
             <DialogDescription>
-              Share this office link with a teammate. They can sign in or create an account, then join you on the floor.
+              Share this link on WhatsApp. It opens ProxiSpeak’s landing page, where your teammate can sign in or create an account and join your office.
             </DialogDescription>
           </DialogHeader>
 
           <div className="invite-field-group">
             <label htmlFor="office-invite-link">Office link</label>
             <div className="invite-input-row">
-              <input id="office-invite-link" readOnly value={`${window.location.origin}/?office=${currentOfficeId}`} />
-              <button className="button button-primary" type="button" onClick={handleCopyMain}>
+              <input id="office-invite-link" readOnly value={inviteUrl || 'Public website URL is not configured'} />
+              <button className="button button-primary" type="button" onClick={handleCopyMain} disabled={!inviteUrl}>
                 {copiedLink ? <><Check size={14} style={{ marginRight: 4 }} /> Copied!</> : <><Copy size={14} style={{ marginRight: 4 }} /> Copy Link</>}
               </button>
             </div>
+            {!inviteUrl && <p className="invite-url-help" role="status">Set VITE_PUBLIC_APP_URL to your deployed website URL before sharing invites.</p>}
+            <button className="button invite-share-button" type="button" onClick={handleShareWhatsApp} disabled={!inviteUrl}>
+              <Share2 size={15} /> Share on WhatsApp
+            </button>
           </div>
 
           <div className="invite-steps">
@@ -686,6 +937,17 @@ function App() {
       <Toaster position="bottom-right" richColors theme={isDarkMode ? 'dark' : 'light'} />
     </main>
   </TooltipProvider>
+  );
+}
+
+function ServerBusyIndicator({ active }) {
+  if (!active) return null;
+
+  return (
+    <div className="server-request-indicator" role="status" aria-live="polite">
+      <span className="server-request-spinner" aria-hidden="true" />
+      <span>Waiting for the server response…</span>
+    </div>
   );
 }
 
@@ -718,7 +980,8 @@ function LandingPage({ onNavigate }) {
         <div className="landing-nav-actions">
           <a className="landing-signin" href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
           <a className="button button-primary landing-nav-cta" href={authHref('register')} onClick={navigateToAuth('register')}>
-            Create your office <ArrowUpRight size={16} />
+            <span className="landing-nav-cta-label"><span className="landing-nav-cta-full">Create your office</span><span className="landing-nav-cta-compact">Create office</span></span>
+            <ArrowUpRight size={16} />
           </a>
         </div>
       </header>
@@ -730,7 +993,17 @@ function LandingPage({ onNavigate }) {
           animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
           transition={{ duration: reducedMotion ? 0 : 0.62, ease: motionEase }}
         >
-          <h1 id="landing-title">Good work happens <em>within earshot.</em></h1>
+          <h1 id="landing-title">
+            <span className="landing-title-lead">Good work happens</span>
+            <motion.span
+              className="landing-title-echo"
+              initial={reducedMotion ? false : { clipPath: 'inset(0 100% 0 0)' }}
+              animate={{ clipPath: 'inset(0 0% 0 0)' }}
+              transition={{ duration: reducedMotion ? 0 : 0.72, delay: reducedMotion ? 0 : 0.16, ease: motionEase }}
+            >
+              within earshot.
+            </motion.span>
+          </h1>
           <p>Skip the meeting link for the little things. See your team, walk over, and talk when it makes sense.</p>
           <div className="landing-hero-actions">
             <a className="button button-primary landing-primary-button" href={authHref('register')} onClick={navigateToAuth('register')}>

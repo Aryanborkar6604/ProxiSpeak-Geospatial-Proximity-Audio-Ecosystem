@@ -11,6 +11,9 @@ colors:
   page: "#f2f4f0"
   surface: "#ffffff"
   surface-soft: "#f7f8f5"
+  glass-light: "rgba(255, 255, 255, 0.66)"
+  glass-dark: "rgba(21, 37, 29, 0.76)"
+  glass-border: "rgba(255, 255, 255, 0.84)"
   ink: "#202923"
   muted: "#738077"
   line: "#e3e8e1"
@@ -100,11 +103,11 @@ components:
 
 ProxiSpeak makes shared presence legible as a place. The floor plan is the primary work surface; the teammate rail and microphone state support it without competing for attention. Pine-green identity, mineral map tones, fine measured linework, signal-lime range marks, and warm voice accents translate distance into a calm, readable interface.
 
-The workspace favors practical density and direct manipulation: teammates can scan the room, search the roster, move around the floor, and reach the microphone control without leaving the map. Sign-in and registration carry the same identity through a dark, illustrative office panel beside a quiet, high-contrast form. The workspace supports both light and dark themes.
+The workspace favors practical density and direct manipulation: teammates can scan the room, search the roster, move around the floor, and reach the microphone control without leaving the map. Subtle glass layers lift navigation, the teammate rail, and voice controls over a softly tinted scene; the floor plan itself stays opaque and high contrast. Sign-in and registration carry the same identity through a dark, illustrative office panel beside a legible frosted-glass form. The workspace supports both light and dark themes.
 
 **Key Characteristics:**
 - Map-first, spatial, and immediately legible.
-- Restrained surfaces with precise green, lime, and warm voice-state signals.
+- Layered glass surfaces with precise green, lime, and warm voice-state signals.
 - Functional controls remain discoverable across pointer, keyboard, and touch layouts.
 
 ## Colors
@@ -159,7 +162,7 @@ Use a measured 4/8/12/16/24/32px spacing rhythm. Keep the map expansive, group r
 
 ## Elevation & Depth
 
-Depth is restrained and structural: subtle borders and tonal surfaces establish the workspace hierarchy, while soft shadows lift the map card, microphone dock, and authentication illustration. Avoid shadows as decoration on every list row or small control.
+Depth is restrained and structural: translucent, blurred glass identifies raised navigation and control layers, while fine borders and offset shadows establish hierarchy. Keep the map drawing opaque and legible; reserve the clearest elevation for the map frame, microphone dock, roster panel, and auth form.
 
 ### Shadow Vocabulary
 - **Workspace surface** (`0 18px 45px rgba(26, 40, 31, .07), 0 2px 7px rgba(26, 40, 31, .04)`): The office map card.
@@ -167,6 +170,12 @@ Depth is restrained and structural: subtle borders and tonal surfaces establish 
 - **Auth illustration** (`0 12px 30px rgba(7, 24, 16, .18)`): The inset floor-plan preview.
 
 **The Few-Lifted-Surfaces Rule.** Keep the roster and map interior quiet; reserve the clearest elevation for the main map, the active voice dock, and the auth illustration.
+
+## Glass Surfaces
+
+Glass is a functional layer over the pine and mineral scene, not a blur effect applied indiscriminately. Use a light, cool-tinted translucency in the light workspace and deep pine translucency in dark mode, each with a fine bright edge, a soft inset highlight, and restrained backdrop blur. The landing and auth surfaces use pale green-white text over a deep botanical background with quiet ambient color fields.
+
+Reserve glass for the landing navigation and demo frame, workspace navigation and utility rail, fixed microphone dock, dialogs, and auth form. Keep the floor-plan canvas, map labels, avatars, field text, and statuses sharp and opaque enough to meet contrast requirements. Keep controls distinguishable through their border and tonal fill even when backdrop blur is unavailable. Respect reduced-transparency preferences by replacing blur with more opaque surfaces.
 
 ## Shapes
 
@@ -182,18 +191,18 @@ Use gently rounded, functional geometry: 14px map cards, 10px primary controls, 
 
 ### Cards / Containers
 - **Corner Style:** The map card uses 14px corners; smaller supporting panels use 9–10px.
-- **Background:** White or soft neutral in light theme; dark forest surfaces in workspace dark theme.
+- **Background:** Light or deep-pine translucent glass on raised shells; the floor-plan canvas remains an opaque, high-contrast work surface.
 - **Shadow Strategy:** Follow Elevation & Depth; do not add a separate shadow to each roster row.
 - **Border:** One quiet divider around the map and subtle section rules in the rail.
 - **Internal Padding:** Keep the map canvas inset by 10px; use compact 10–16px padding for supporting surfaces.
 
 ### Inputs / Fields
-- **Style:** Clear labels above white fields, a quiet neutral border, and 9px corners. Auth fields are 47px high with 13px horizontal padding.
+- **Style:** Clear labels above 47px fields with 13px horizontal padding and 9px corners. Workspace search remains pale and distinct; auth fields use a dark translucent fill, bright readable text, and a quiet light border.
 - **Focus:** Shift the border toward green and show a soft green focus halo; keyboard focus remains clearly outlined.
 - **Error / Disabled:** Keep errors adjacent to the relevant form with corrective language; busy submit actions communicate that they are waiting.
 
 ### Navigation
-- **Style:** A 72px white workspace bar separates product identity, office context, connection state, theme, invitation, and profile actions with fine dividers and deliberate spacing.
+- **Style:** A 72px frosted-glass workspace bar separates product identity, office context, connection state, theme, invitation, and profile actions with fine dividers and deliberate spacing.
 - **Mobile:** Retain the brand, theme, invitation, and avatar actions; hide secondary labels rather than allowing the bar to overflow.
 
 ### Office Map

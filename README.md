@@ -23,6 +23,8 @@ The automated spatial benchmark checks 50 simulated users and verifies spatial r
    - `POST https://<your-render-service>.onrender.com/api/auth/login` with JSON `{"email":"alex@example.com","password":"YourPassword123"}`.
    - `GET https://<your-render-service>.onrender.com/api/auth/me` with `Authorization: Bearer <token>`.
 
+Office invitations use the deployed website origin and open the landing page with the office ID preserved. To share a link while developing locally, set `VITE_PUBLIC_APP_URL` in `client/.env` to the deployed website origin; the app will not copy or share localhost or private-network URLs. The invite dialog can copy the link or open a prefilled WhatsApp message. Slow API requests show a waiting indicator and progress cursor.
+
 The blueprint starts with Render's free web-service plan; free services may sleep while idle and can take time to wake. Upgrade the service plan for an always-on production deployment. MongoDB Atlas billing and network access are managed separately from Render.
 
 ## Accounts and authentication

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const THROTTLE_MS = 1000 / 15;
-const AVATAR_COLORS = ['#a66c57', '#607c6b', '#88739a', '#a0804f', '#607994', '#b06f65'];
+const AVATAR_COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899'];
 
 function labelFor(index) { return `Teammate ${index + 1}`; }
 
@@ -18,13 +18,17 @@ export default function OfficeCanvas({
   isSpeaking = false,
   isMuted = false,
   peerAttenuations = {},
-  isDarkMode = false,
+  isDarkMode = true,
 }) {
   const canvasRef = useRef(null);
   const peersRef = useRef({});
   const localPos = useRef({ x: 175, y: 335 });
   const lastEmitTime = useRef(0);
   const [canvasSize, setCanvasSize] = useState({ width: officeState.width, height: officeState.height });
+  
+  // Dynamic sound wave ripples: [ { x, y, radius, maxRadius, alpha, color } ]
+  const soundWaves = useRef([]);
+  const lastWaveSpawn = useRef(0);
 
   const audioStateRef = useRef({ nearbyPeers, speakingPeers, mutedPeers, isSpeaking, isMuted, peerAttenuations, isDarkMode });
   audioStateRef.current = { nearbyPeers, speakingPeers, mutedPeers, isSpeaking, isMuted, peerAttenuations, isDarkMode };
@@ -94,6 +98,7 @@ export default function OfficeCanvas({
     let pixelRatio = window.devicePixelRatio || 1;
     let frameCount = 0;
     let fpsWindowStart = performance.now();
+
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -102,6 +107,7 @@ export default function OfficeCanvas({
       canvas.height = Math.round(rect.height * pixelRatio);
       setCanvasSize({ width: rect.width, height: rect.height });
     };
+
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     resize();
@@ -124,94 +130,256 @@ export default function OfficeCanvas({
 
       ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = dark ? '#172019' : '#eef1eb';
+
+      // 1. Futuristic Spatial Canvas Background
+      const bgGrad = ctx.createRadialGradient(
+        width / 2, height / 2, 50,
+        width / 2, height / 2, Math.max(width, height) * 0.7
+      );
+      if (dark) {
+        bgGrad.addColorStop(0, '#10151E');
+        bgGrad.addColorStop(0.5, '#0B0E14');
+        bgGrad.addColorStop(1, '#07090C');
+      } else {
+        bgGrad.addColorStop(0, '#FDFDFE');
+        bgGrad.addColorStop(0.6, '#F3F5F9');
+        bgGrad.addColorStop(1, '#E9ECF2');
+      }
+      ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Survey grid
       ctx.save();
       ctx.scale(sx, sy);
-      ctx.strokeStyle = dark ? 'rgba(220, 239, 215, 0.065)' : 'rgba(53, 76, 58, 0.075)';
-      ctx.lineWidth = 1;
-      for (let x = 0; x <= officeState.width; x += 32) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, officeState.height); ctx.stroke();
-      }
-      for (let y = 0; y <= officeState.height; y += 32) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(officeState.width, y); ctx.stroke();
-      }
 
-      // Work areas and furniture
-      drawZone(ctx, 73, 87, 252, 172, 'THE LIBRARY', 'soft', dark);
-      drawZone(ctx, 389, 82, 337, 242, 'STUDIO', 'green', dark);
-      drawZone(ctx, 710, 392, 226, 186, 'LOUNGE', 'sand', dark);
+      // 2. Holographic Cyber-Grid & Matrix Dots
+      ctx.save();
+      for (let x = 32; x < officeState.width; x += 32) {
+        for (let y = 32; y < officeState.height; y += 32) {
+          const isCross = (x % 128 === 0 && y % 128 === 0);
+          if (isCross) {
+            ctx.strokeStyle = dark ? 'rgba(0, 245, 155, 0.22)' : 'rgba(31, 168, 150, 0.28)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
+            ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4);
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.06)';
+            ctx.beginPath();
+            ctx.arc(x, y, 1, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+      ctx.restore();
+
+      // 3. Cyber-Clean Architectural Room Zones
+      drawZone(ctx, 73, 87, 252, 172, 'LIBRARY // ACOUSTIC SILENT', 'teal', dark);
+      drawZone(ctx, 389, 82, 337, 242, 'DEV STUDIO // SPATIAL HUD', 'cyan', dark);
+      drawZone(ctx, 710, 392, 226, 186, 'LOUNGE // SOCIAL COMMONS', 'purple', dark);
+
+      // 4. Sleek Minimalist Architectural Furniture
       drawSofa(ctx, 98, 119, dark);
       drawDesk(ctx, 430, 127, 122, dark);
       drawDesk(ctx, 585, 127, 108, dark);
       drawDesk(ctx, 430, 215, 122, dark);
       drawDesk(ctx, 585, 215, 108, dark);
-      drawPlant(ctx, 357, 130);
-      drawPlant(ctx, 751, 465);
+      drawPlant(ctx, 357, 130, dark);
+      drawPlant(ctx, 751, 465, dark);
       drawMeetingTable(ctx, 780, 155, dark);
       drawSmallTable(ctx, 143, 204, dark);
 
-      // Phase 4: Render sound-blocking obstacles (walls) per design.md §3.3
+      // 5. Sound-Blocking Laser Acoustic Walls
       const obstacles = officeState?.obstacles || [];
       if (obstacles.length > 0) {
         ctx.save();
         ctx.lineCap = 'round';
         obstacles.forEach((obs) => {
           if (obs.x1 !== undefined && obs.y1 !== undefined && obs.x2 !== undefined && obs.y2 !== undefined) {
-            // Drop shadow
-            ctx.shadowColor = dark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(25, 30, 27, 0.15)';
-            ctx.shadowBlur = 7;
-            ctx.shadowOffsetY = 3;
+            // Neon acoustic shadow glow
+            ctx.shadowColor = dark ? 'rgba(0, 210, 255, 0.35)' : 'rgba(31, 168, 150, 0.25)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetY = 2;
 
-            // Outer wall
-            ctx.strokeStyle = dark ? '#8c959c' : '#3A3D42'; // --ps-wall
-            ctx.lineWidth = 6;
+            // Outer structural wall core
+            ctx.strokeStyle = dark ? '#1E232D' : '#333740';
+            ctx.lineWidth = 7;
             ctx.beginPath();
             ctx.moveTo(obs.x1, obs.y1);
             ctx.lineTo(obs.x2, obs.y2);
             ctx.stroke();
 
-            // Inner core stroke
+            // Laser edge stripe
             ctx.shadowColor = 'transparent';
-            ctx.strokeStyle = dark ? '#b5bec6' : '#575d65';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = dark ? '#00E5FF' : '#1FA896';
+            ctx.lineWidth = 1.8;
             ctx.beginPath();
             ctx.moveTo(obs.x1, obs.y1);
             ctx.lineTo(obs.x2, obs.y2);
             ctx.stroke();
+
+            // End cap terminal dots
+            ctx.fillStyle = dark ? '#00F59B' : '#10B981';
+            ctx.beginPath();
+            ctx.arc(obs.x1, obs.y1, 2.5, 0, Math.PI * 2);
+            ctx.arc(obs.x2, obs.y2, 2.5, 0, Math.PI * 2);
+            ctx.fill();
           }
         });
         ctx.restore();
       }
 
-      // Office boundaries
-      ctx.strokeStyle = dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(81, 91, 83, 0.14)';
+      // 6. Perimeter Shield Border
+      ctx.save();
+      ctx.strokeStyle = dark ? 'rgba(0, 245, 155, 0.16)' : 'rgba(31, 168, 150, 0.22)';
       ctx.lineWidth = 1.5;
-      roundedRect(ctx, 14, 14, officeState.width - 28, officeState.height - 28, 15);
+      roundedRect(ctx, 14, 14, officeState.width - 28, officeState.height - 28, 16);
       ctx.stroke();
+      ctx.restore();
 
       const { x: localX, y: localY } = localPos.current;
-      // Hearing radius with gentle breathing pulse
-      const pulseRadius = 105 + Math.sin(Date.now() / 600) * 2;
+
+      // 7. Dynamic Acoustic Sound Waves Spawn & Rendering
+      const now = Date.now();
+      if (now - lastWaveSpawn.current > 140) {
+        if (curAudio.isSpeaking) {
+          soundWaves.current.push({
+            x: localX,
+            y: localY,
+            radius: 20,
+            maxRadius: 105,
+            color: dark ? '#00F59B' : '#10B981',
+          });
+        }
+        Object.entries(peersRef.current).forEach(([peerId, point]) => {
+          if (curAudio.speakingPeers[peerId]) {
+            soundWaves.current.push({
+              x: point.x,
+              y: point.y,
+              radius: 20,
+              maxRadius: 105,
+              color: dark ? '#00D2FF' : '#0284C7',
+            });
+          }
+        });
+        lastWaveSpawn.current = now;
+      }
+
+      // Draw and advance sound wave rings
+      ctx.save();
+      for (let i = soundWaves.current.length - 1; i >= 0; i--) {
+        const wave = soundWaves.current[i];
+        wave.radius += 1.4;
+        const alpha = Math.max(0, (1 - wave.radius / wave.maxRadius) * 0.65);
+        if (wave.radius >= wave.maxRadius) {
+          soundWaves.current.splice(i, 1);
+          continue;
+        }
+
+        ctx.strokeStyle = wave.color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 8. Dynamic Proximity Beams & Spatial HUD Tethers
+      Object.entries(peersRef.current).forEach(([peerId, peer]) => {
+        const dist = Math.hypot(peer.x - localX, peer.y - localY);
+        const inRange = dist <= (officeState.hearingRadiusPx || 105);
+        const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
+        const isMuffled = peerAtt < 0.9;
+
+        if (inRange) {
+          ctx.save();
+          const baseVolume = Math.max(0, 1 - dist / 105);
+          const finalVolumePct = Math.round(baseVolume * peerAtt * 100);
+
+          // Animated neon tether
+          const tetherGrad = ctx.createLinearGradient(localX, localY, peer.x, peer.y);
+          if (dark) {
+            tetherGrad.addColorStop(0, 'rgba(0, 245, 155, 0.7)');
+            tetherGrad.addColorStop(1, isMuffled ? 'rgba(245, 158, 11, 0.6)' : 'rgba(0, 210, 255, 0.7)');
+          } else {
+            tetherGrad.addColorStop(0, 'rgba(16, 185, 129, 0.6)');
+            tetherGrad.addColorStop(1, isMuffled ? 'rgba(217, 119, 6, 0.6)' : 'rgba(14, 165, 233, 0.6)');
+          }
+
+          ctx.strokeStyle = tetherGrad;
+          ctx.lineWidth = isMuffled ? 1.5 : 2;
+          ctx.setLineDash(isMuffled ? [4, 4] : [6, 4]);
+          ctx.lineDashOffset = -Date.now() / 60;
+          ctx.beginPath();
+          ctx.moveTo(localX, localY);
+          ctx.lineTo(peer.x, peer.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Midpoint Spatial Audio Telemetry Badge
+          const midX = (localX + peer.x) / 2;
+          const midY = (localY + peer.y) / 2;
+          const badgeText = isMuffled ? `▤ WALL ${finalVolumePct}%` : `🔊 ${finalVolumePct}% • ${Math.round(dist)}px`;
+          
+          ctx.font = '700 8px "JetBrains Mono", monospace, sans-serif';
+          const textMetrics = ctx.measureText(badgeText);
+          const badgeW = textMetrics.width + 14;
+          const badgeH = 17;
+
+          ctx.fillStyle = dark ? 'rgba(11, 15, 22, 0.88)' : 'rgba(255, 255, 255, 0.9)';
+          ctx.shadowColor = dark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.12)';
+          ctx.shadowBlur = 6;
+          roundedRect(ctx, midX - badgeW / 2, midY - badgeH / 2, badgeW, badgeH, 6);
+          ctx.fill();
+
+          ctx.shadowColor = 'transparent';
+          ctx.strokeStyle = isMuffled ? 'rgba(245, 158, 11, 0.6)' : 'rgba(0, 245, 155, 0.6)';
+          ctx.lineWidth = 1;
+          roundedRect(ctx, midX - badgeW / 2, midY - badgeH / 2, badgeW, badgeH, 6);
+          ctx.stroke();
+
+          ctx.fillStyle = isMuffled ? (dark ? '#FBBF24' : '#D97706') : (dark ? '#00F59B' : '#059669');
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(badgeText, midX, midY + 0.5);
+          ctx.restore();
+        }
+      });
+
+      // 9. Local User Hearing Horizon Aura
+      const pulseRadius = 105 + Math.sin(Date.now() / 500) * 2.5;
+      const radarGrad = ctx.createRadialGradient(localX, localY, 20, localX, localY, pulseRadius);
+      if (dark) {
+        radarGrad.addColorStop(0, 'rgba(0, 245, 155, 0.12)');
+        radarGrad.addColorStop(0.7, 'rgba(0, 210, 255, 0.05)');
+        radarGrad.addColorStop(1, 'rgba(0, 245, 155, 0)');
+      } else {
+        radarGrad.addColorStop(0, 'rgba(16, 185, 129, 0.10)');
+        radarGrad.addColorStop(0.7, 'rgba(14, 165, 233, 0.04)');
+        radarGrad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+      }
+      ctx.fillStyle = radarGrad;
       ctx.beginPath();
       ctx.arc(localX, localY, pulseRadius, 0, Math.PI * 2);
-      ctx.fillStyle = dark ? 'rgba(201, 237, 131, 0.075)' : 'rgba(79, 133, 76, 0.075)';
       ctx.fill();
-      ctx.setLineDash([4, 7]);
-      ctx.strokeStyle = dark ? 'rgba(201, 237, 131, 0.42)' : 'rgba(65, 119, 69, 0.42)';
-      ctx.lineWidth = 1.2;
+
+      // Outer radar ring
+      ctx.strokeStyle = dark ? 'rgba(0, 245, 155, 0.45)' : 'rgba(16, 185, 129, 0.5)';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([5, 6]);
+      ctx.lineDashOffset = -Date.now() / 120;
+      ctx.beginPath();
+      ctx.arc(localX, localY, pulseRadius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      drawAvatar(ctx, localX, localY, '#286b5e', 'YOU', true, curAudio.isSpeaking, false, curAudio.isMuted, 1.0, dark);
-      
+      // 10. Draw Avatars (Local & Remote)
+      drawAvatar(ctx, localX, localY, '#00F59B', 'YOU', true, curAudio.isSpeaking, false, curAudio.isMuted, 1.0, dark);
+
       const getAvatarColor = (id) => {
         let hash = 0;
-        for (let i = 0; i < id.length; i++) {
-          hash = id.charCodeAt(i) + ((hash << 5) - hash);
-        }
+        for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
         return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
       };
 
@@ -223,9 +391,11 @@ export default function OfficeCanvas({
         const avatarLabel = point.name?.trim().split(/\s+/)[0] || labelFor(index);
         drawAvatar(ctx, point.x, point.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
       });
+
       ctx.restore();
       frame = requestAnimationFrame(draw);
     };
+
     draw();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   }, [officeState]);
@@ -261,199 +431,245 @@ export default function OfficeCanvas({
     lastEmitTime.current = Date.now();
   };
 
-  return <canvas ref={canvasRef} className="office-canvas" width={canvasSize.width} height={canvasSize.height} onClick={handleCanvasClick} aria-label="Office map. Use WASD or arrow keys to move your avatar." tabIndex={0} />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="office-canvas"
+      width={canvasSize.width}
+      height={canvasSize.height}
+      onClick={handleCanvasClick}
+      aria-label="Interactive Spatial Radar Map. Move with WASD or arrow keys."
+      tabIndex={0}
+    />
+  );
 }
 
 function roundedRect(ctx, x, y, w, h, r) {
-  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
 }
 
-function drawZone(ctx, x, y, w, h, label, tone, isDark = false) {
+function drawZone(ctx, x, y, w, h, label, accent, isDark = true) {
   ctx.save();
-  const fill = tone === 'green'
-    ? (isDark ? 'rgba(112, 166, 113, 0.13)' : 'rgba(90, 139, 86, 0.10)')
-    : tone === 'sand'
-    ? (isDark ? 'rgba(189, 143, 101, 0.14)' : 'rgba(189, 143, 101, 0.12)')
-    : (isDark ? 'rgba(142, 165, 141, 0.09)' : 'rgba(97, 122, 99, 0.07)');
-  ctx.fillStyle = fill;
-  roundedRect(ctx, x, y, w, h, 13);
+  const fills = {
+    teal: isDark ? 'rgba(0, 245, 155, 0.045)' : 'rgba(16, 185, 129, 0.055)',
+    cyan: isDark ? 'rgba(0, 210, 255, 0.045)' : 'rgba(14, 165, 233, 0.055)',
+    purple: isDark ? 'rgba(168, 85, 247, 0.045)' : 'rgba(147, 51, 234, 0.055)',
+  };
+  const borders = {
+    teal: isDark ? 'rgba(0, 245, 155, 0.35)' : 'rgba(16, 185, 129, 0.35)',
+    cyan: isDark ? 'rgba(0, 210, 255, 0.35)' : 'rgba(14, 165, 233, 0.35)',
+    purple: isDark ? 'rgba(168, 85, 247, 0.35)' : 'rgba(147, 51, 234, 0.35)',
+  };
+
+  // Glassmorphic zone fill
+  ctx.fillStyle = fills[accent] || fills.teal;
+  roundedRect(ctx, x, y, w, h, 14);
   ctx.fill();
-  ctx.setLineDash([3, 5]);
-  ctx.strokeStyle = isDark ? 'rgba(174, 199, 171, 0.3)' : 'rgba(75, 97, 76, 0.25)';
+
+  // Subtle boundary
+  ctx.strokeStyle = borders[accent] || borders.teal;
   ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = isDark ? 'rgba(211, 228, 209, 0.78)' : 'rgba(49, 69, 51, 0.72)';
-  ctx.font = '600 9px "DM Sans", sans-serif';
-  ctx.letterSpacing = '1.6px';
-  ctx.fillText(label, x + 15, y + 20);
-  ctx.restore();
-}
 
-function drawDesk(ctx, x, y, w, isDark = false) {
-  ctx.save();
-  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.35)' : 'rgba(45, 53, 47, 0.06)';
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 3;
-  ctx.fillStyle = isDark ? '#24272c' : '#dedbd3';
-  roundedRect(ctx, x, y, w, 37, 7);
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.fillStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.68)';
-  roundedRect(ctx, x + 8, y + 7, w - 16, 22, 4);
-  ctx.fill();
-  ctx.fillStyle = isDark ? '#383e44' : '#b5b8aa';
-  roundedRect(ctx, x + w / 2 - 10, y + 12, 20, 11, 3);
-  ctx.fill();
-  ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(86, 94, 85, 0.16)';
+  // High-tech corner angle brackets
+  const cornerLen = 12;
+  ctx.strokeStyle = borders[accent] || borders.teal;
   ctx.lineWidth = 2;
+  // Top-left
+  ctx.beginPath(); ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y); ctx.stroke();
+  // Top-right
+  ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen); ctx.stroke();
+  // Bottom-left
+  ctx.beginPath(); ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h); ctx.stroke();
+  // Bottom-right
+  ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen); ctx.stroke();
+
+  // Zone Label HUD Badge
+  ctx.fillStyle = isDark ? '#E5E7EB' : '#1F2937';
+  ctx.font = '700 8.5px "JetBrains Mono", monospace, sans-serif';
+  ctx.fillText(label, x + 16, y + 20);
+  ctx.restore();
+}
+
+function drawDesk(ctx, x, y, w, isDark = true) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.08)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 3;
+  ctx.fillStyle = isDark ? '#1C212B' : '#E8EBF2';
+  roundedRect(ctx, x, y, w, 36, 8);
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)';
+  roundedRect(ctx, x + 6, y + 6, w - 12, 24, 4);
+  ctx.fill();
+
+  // Laptop display pad
+  ctx.fillStyle = isDark ? '#2D3748' : '#CBD5E1';
+  roundedRect(ctx, x + w / 2 - 12, y + 10, 24, 15, 3);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSofa(ctx, x, y, isDark = true) {
+  ctx.save();
+  ctx.fillStyle = isDark ? '#1F2633' : '#DFE3EB';
+  roundedRect(ctx, x, y, 76, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = isDark ? '#283142' : '#CBD2E1';
+  roundedRect(ctx, x + 4, y + 4, 68, 14, 6);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPlant(ctx, x, y, isDark = true) {
+  ctx.save();
+  ctx.fillStyle = isDark ? '#142820' : '#D1E7DD';
   ctx.beginPath();
-  ctx.moveTo(x + 17, y + 38); ctx.lineTo(x + 17, y + 47);
-  ctx.moveTo(x + w - 17, y + 38); ctx.lineTo(x + w - 17, y + 47);
-  ctx.stroke();
+  ctx.arc(x, y, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = isDark ? '#10B981' : '#059669';
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-function drawSofa(ctx, x, y, isDark = false) {
+function drawMeetingTable(ctx, x, y, isDark = true) {
   ctx.save();
-  ctx.fillStyle = isDark ? '#26292e' : '#d6cdc1';
-  roundedRect(ctx, x, y, 126, 42, 10);
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.06)';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = isDark ? '#181E29' : '#E5E9F2';
+  roundedRect(ctx, x, y, 120, 52, 16);
   ctx.fill();
-  ctx.fillStyle = isDark ? '#32373e' : '#eee9e1';
-  roundedRect(ctx, x + 6, y + 6, 55, 30, 7);
-  ctx.fill();
-  roundedRect(ctx, x + 65, y + 6, 55, 30, 7);
-  ctx.fill();
-  ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(98, 89, 77, .12)';
-  ctx.lineWidth = 1;
-  roundedRect(ctx, x, y, 126, 42, 10);
-  ctx.stroke();
   ctx.restore();
 }
 
-function drawSmallTable(ctx, x, y, isDark = false) {
+function drawSmallTable(ctx, x, y, isDark = true) {
   ctx.save();
-  ctx.fillStyle = isDark ? '#2a2d32' : '#c9b99e';
-  ctx.beginPath(); ctx.arc(x, y, 24, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = isDark ? '#35393f' : '#eee6d9';
-  ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#7c9b81';
-  ctx.beginPath(); ctx.arc(x, y - 1, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
-function drawMeetingTable(ctx, x, y, isDark = false) {
-  ctx.save();
-  ctx.fillStyle = isDark ? '#282b30' : '#c8bda9';
-  roundedRect(ctx, x, y, 103, 54, 23);
+  ctx.fillStyle = isDark ? '#1B222E' : '#E2E6EF';
+  ctx.beginPath();
+  ctx.arc(x, y, 16, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = isDark ? '#363a40' : '#ded8c9';
-  roundedRect(ctx, x + 4, y + 4, 95, 46, 20);
-  ctx.fill();
-  [[x + 20, y - 10], [x + 51, y - 12], [x + 82, y - 10], [x + 20, y + 64], [x + 51, y + 66], [x + 82, y + 64]].forEach(([cx, cy]) => {
-    ctx.fillStyle = isDark ? '#42474f' : '#e4ded3';
-    ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
-  });
   ctx.restore();
 }
 
-function drawPlant(ctx, x, y) {
-  ctx.save(); ctx.fillStyle = '#c8b99f'; roundedRect(ctx, x - 8, y + 10, 16, 14, 4); ctx.fill();
-  ctx.strokeStyle = '#80967b'; ctx.lineWidth = 2;
-  [[-8, -3], [-3, -11], [3, -8], [9, -3], [0, -16]].forEach(([dx, dy]) => { ctx.beginPath(); ctx.moveTo(x, y + 14); ctx.quadraticCurveTo(x + dx, y + dy + 8, x + dx, y + dy); ctx.stroke(); });
-  ctx.restore();
-}
-
-function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking = false, isNearby = false, isMuted = false, attenuation = 1.0, isDark = false) {
-  ctx.save();
+function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking, isNearby, isMuted, attenuation, isDark) {
   const isMuffled = attenuation < 0.9;
-  
-  // Voice activity is distinguished from proximity with a warm signal color.
+  ctx.save();
+
+  // 1. Equalizer Bars Floating Above When Speaking
   if (isSpeaking) {
-    const pulse = (Math.sin(Date.now() / 140) + 1) / 2; // 0 to 1 smooth oscillation
-    const pulseColor = isMuffled
-      ? `rgba(122, 140, 130, ${0.5 - pulse * 0.3})` // Muffled behind wall
-      : `rgba(224, 132, 89, ${0.75 - pulse * 0.45})`;
-    ctx.strokeStyle = pulseColor;
-    ctx.lineWidth = 2.2 + pulse * 1.8;
-    ctx.beginPath();
-    ctx.arc(x, y, 18 + pulse * 6.5, 0, Math.PI * 2);
-    ctx.stroke();
+    const barCount = 4;
+    const barW = 2.5;
+    const spacing = 2;
+    const totalW = barCount * barW + (barCount - 1) * spacing;
+    const startX = x - totalW / 2;
+    const baseH = 8;
+    const t = Date.now() / 100;
+
+    ctx.save();
+    ctx.fillStyle = isLocal ? '#00F59B' : '#00D2FF';
+    for (let i = 0; i < barCount; i++) {
+      const h = Math.max(3, baseH * Math.abs(Math.sin(t + i * 1.2)));
+      roundedRect(ctx, startX + i * (barW + spacing), y - 26 - h, barW, h, 1.5);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
-  // Base shadow
-  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(29, 50, 41, 0.15)';
+  // 2. High-Tech Pulsing Glow Aura
+  if (isSpeaking) {
+    ctx.save();
+    ctx.shadowColor = isLocal ? '#00F59B' : '#00D2FF';
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = isLocal ? 'rgba(0, 245, 155, 0.8)' : 'rgba(0, 210, 255, 0.8)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 19, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3. Base Shadow & Disc
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.65)' : 'rgba(0, 0, 0, 0.15)';
   ctx.shadowBlur = 12;
   ctx.shadowOffsetY = 4;
-  ctx.fillStyle = isDark ? '#1E2024' : '#fff';
+  ctx.fillStyle = isDark ? '#141822' : '#FFFFFF';
   ctx.beginPath();
   ctx.arc(x, y, 17, 0, Math.PI * 2);
   ctx.fill();
 
-  // Avatar inner circle
+  // 4. Inner Avatar Core
   ctx.shadowColor = 'transparent';
-  ctx.fillStyle = isMuffled ? '#7b8782' : color;
+  ctx.fillStyle = isLocal ? (isDark ? '#00F59B' : '#059669') : (isMuffled ? '#64748B' : color);
   ctx.beginPath();
-  ctx.arc(x, y, 13, 0, Math.PI * 2);
+  ctx.arc(x, y, 13.5, 0, Math.PI * 2);
   ctx.fill();
 
-  // 2px Presence Ring per design.md §3.2 & §8 (Obstacle attenuation)
-  if (isSpeaking) {
-    ctx.strokeStyle = isMuffled ? '#7A8C82' : '#c06443';
-    ctx.lineWidth = 2.5;
-    if (isMuffled) ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.arc(x, y, 17, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  } else if (isNearby) {
-    ctx.strokeStyle = isMuffled ? '#5B666E' : '#c77c57';
+  // 5. Presence / Muffled Rings
+  if (isMuffled) {
+    ctx.strokeStyle = '#F59E0B'; // Amber wall warning
     ctx.lineWidth = 2;
-    if (isMuffled) ctx.setLineDash([3, 3]);
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    ctx.arc(x, y, 17, 0, Math.PI * 2);
+    ctx.arc(x, y, 17.5, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
+  } else if (isNearby && !isLocal) {
+    ctx.strokeStyle = '#00D2FF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 17.5, 0, Math.PI * 2);
+    ctx.stroke();
   } else if (isMuted) {
-    ctx.strokeStyle = '#B9BCC2'; // --ps-muted
+    ctx.strokeStyle = '#64748B';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(x, y, 17, 0, Math.PI * 2);
-    ctx.stroke();
-  } else {
-    ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(81, 91, 83, 0.18)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, 17, 0, Math.PI * 2);
+    ctx.arc(x, y, 17.5, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  // Avatar initials / text
-  ctx.fillStyle = 'rgba(255,255,255,.94)';
-  ctx.font = '600 8px "DM Sans", sans-serif';
+  // 6. Initials
+  ctx.fillStyle = isLocal ? '#07090C' : '#FFFFFF';
+  ctx.font = '700 8.5px "JetBrains Mono", monospace, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(isLocal ? 'YOU' : label.split(' ').map((part) => part[0]).join(''), x, y + 0.5);
+  ctx.fillText(isLocal ? 'YOU' : label.slice(0, 2).toUpperCase(), x, y + 0.5);
 
-  // Label pill beneath avatar
-  const pillW = isMuffled ? 72 : 58;
-  ctx.fillStyle = isDark ? '#23262c' : '#fff';
-  roundedRect(ctx, x - pillW / 2, y + 22, pillW, 17, 8);
+  // 7. Sleek Glassmorphic Label Pill
+  const pillW = isMuffled ? 78 : 62;
+  ctx.fillStyle = isDark ? 'rgba(17, 24, 39, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.1)';
+  ctx.shadowBlur = 8;
+  roundedRect(ctx, x - pillW / 2, y + 22, pillW, 18, 9);
   ctx.fill();
 
-  // Speaking indicator dot or text
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = isSpeaking
+    ? (isLocal ? 'rgba(0, 245, 155, 0.6)' : 'rgba(0, 210, 255, 0.6)')
+    : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)');
+  ctx.lineWidth = 1;
+  roundedRect(ctx, x - pillW / 2, y + 22, pillW, 18, 9);
+  ctx.stroke();
+
+  // Status Dot & Name
   if (isSpeaking) {
-    ctx.fillStyle = isMuffled ? '#7A8C82' : '#2FD38B';
+    ctx.fillStyle = isMuffled ? '#F59E0B' : (isLocal ? '#00F59B' : '#00D2FF');
     ctx.beginPath();
-    ctx.arc(x - pillW / 2 + 8, y + 30.5, 2.5, 0, Math.PI * 2);
+    ctx.arc(x - pillW / 2 + 8, y + 31, 2.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = isDark ? '#98f0c5' : (isMuffled ? '#4c5c54' : '#1e382b');
-    ctx.font = '600 8px Inter, sans-serif';
-    ctx.fillText(isMuffled ? `${label} (wall)` : label, x + 4, y + 30.5);
+    ctx.fillStyle = isDark ? '#F3F4F6' : '#111827';
+    ctx.font = '700 8px "JetBrains Mono", monospace, sans-serif';
+    ctx.fillText(isMuffled ? `${label} [WALL]` : label, x + 4, y + 31);
   } else {
-    ctx.fillStyle = isDark ? '#c8ced4' : '#3e4942';
-    ctx.font = '500 8px Inter, sans-serif';
-    ctx.fillText(isMuffled ? `${label} ▤` : label, x, y + 30.5);
+    ctx.fillStyle = isDark ? '#9CA3AF' : '#4B5563';
+    ctx.font = '600 8px "DM Sans", sans-serif';
+    ctx.fillText(isMuffled ? `${label} ▤` : label, x, y + 31);
   }
 
   ctx.restore();

@@ -8,8 +8,9 @@ const DEFAULT_RTC_CONFIG = {
     { urls: 'stun:global.stun.twilio.com:3478' },
   ],
 };
+const runDirectly = (request) => request();
 
-export default function useWebRTC(socket, localUserId, token, officeId) {
+export default function useWebRTC(socket, localUserId, token, officeId, runWithServerActivity = runDirectly) {
   const [rtcConfig, setRtcConfig] = useState(DEFAULT_RTC_CONFIG);
   const [rtcMode, setRtcMode] = useState('peer');
   const [loadedRtcToken, setLoadedRtcToken] = useState(null);
@@ -49,18 +50,21 @@ export default function useWebRTC(socket, localUserId, token, officeId) {
 
     const controller = new AbortController();
     const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-    fetch(`${apiBaseUrl}/rtc/config`, {
+    runWithServerActivity(async () => {
+      const response = await fetch(`${apiBaseUrl}/rtc/config`, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`RTC configuration request failed (${response.status}).`);
+      }
+      const config = await response.json();
+      if (!Array.isArray(config.iceServers) || config.iceServers.length === 0) {
+        throw new Error('RTC configuration did not include any ICE servers.');
+      }
+      return config;
     })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`RTC configuration request failed (${response.status}).`);
-        }
-        const config = await response.json();
-        if (!Array.isArray(config.iceServers) || config.iceServers.length === 0) {
-          throw new Error('RTC configuration did not include any ICE servers.');
-        }
+      .then((config) => {
         setRtcConfig({ iceServers: config.iceServers });
         setRtcMode(config.mode === 'livekit' ? 'livekit' : 'peer');
         setLoadedRtcToken(token);
@@ -77,7 +81,7 @@ export default function useWebRTC(socket, localUserId, token, officeId) {
       });
 
     return () => controller.abort();
-  }, [token]);
+  }, [token, runWithServerActivity]);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -414,13 +418,16 @@ export default function useWebRTC(socket, localUserId, token, officeId) {
       try {
         const { Room, RoomEvent, Track } = await import('livekit-client');
         const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-        const response = await fetch(`${apiBaseUrl}/rtc/livekit-token?officeId=${encodeURIComponent(officeId)}`, {
+        const credentials = await runWithServerActivity(async () => {
+          const response = await fetch(`${apiBaseUrl}/rtc/livekit-token?officeId=${encodeURIComponent(officeId)}`, {
           headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+            signal: controller.signal,
+          });
+          const credentials = await response.json();
+          if (!response.ok) throw new Error(credentials.error || `LiveKit token request failed (${response.status}).`);
+          if (!credentials.url || !credentials.token) throw new Error('LiveKit credentials response is incomplete.');
+          return credentials;
         });
-        const credentials = await response.json();
-        if (!response.ok) throw new Error(credentials.error || `LiveKit token request failed (${response.status}).`);
-        if (!credentials.url || !credentials.token) throw new Error('LiveKit credentials response is incomplete.');
 
         room = new Room({ adaptiveStream: false, dynacast: true });
         livekitRoomRef.current = room;
@@ -540,7 +547,7 @@ export default function useWebRTC(socket, localUserId, token, officeId) {
       setVoiceConnectionState('ready');
       Object.keys(spatialNodes).forEach(removeRemoteAudio);
     };
-  }, [token, localStream, officeId, rtcConfigReady, rtcMode, localUserId, attachRemoteAudio, removeRemoteAudio]);
+  }, [token, localStream, officeId, rtcConfigReady, rtcMode, localUserId, attachRemoteAudio, removeRemoteAudio, runWithServerActivity]);
 
   useEffect(() => {
     if (!socket || !localStream || !rtcConfigReady || rtcMode === 'livekit') return undefined;
