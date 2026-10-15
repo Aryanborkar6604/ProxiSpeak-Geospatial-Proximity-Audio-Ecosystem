@@ -7,9 +7,9 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import './App.css';
 import {
-  Activity, ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Mic,
+  Activity, ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Menu, Mic,
   MicOff, Moon, Radio, Search,
-  Share2, ShieldCheck, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi,
+  Share2, ShieldCheck, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
 import { playSpatialPing, toggleAmbientSound } from './utils/audioFx';
@@ -954,14 +954,25 @@ function ServerBusyIndicator({ active }) {
 function LandingPage({ onNavigate }) {
   const reducedMotion = useReducedMotion();
   const [distance, setDistance] = useState(62);
+  const [menuOpen, setMenuOpen] = useState(false);
   const nearby = distance <= 34;
   const teammateX = 316 + distance * 1.9;
   const authHref = (mode) => `/${mode}${window.location.search}`;
   const navigateToAuth = (mode) => (event) => {
     event.preventDefault();
+    setMenuOpen(false);
     onNavigate(mode);
   };
   const motionEase = [0.16, 1, 0.3, 1];
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [menuOpen]);
 
   return (
     <motion.main
@@ -984,6 +995,36 @@ function LandingPage({ onNavigate }) {
             <ArrowUpRight size={16} />
           </a>
         </div>
+        <button
+          className="landing-menu-toggle"
+          type="button"
+          aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={menuOpen}
+          aria-controls="landing-mobile-menu"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.nav
+              id="landing-mobile-menu"
+              className="landing-mobile-menu"
+              aria-label="Mobile navigation"
+              initial={reducedMotion ? false : { opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reducedMotion ? undefined : { opacity: 0, y: -5 }}
+              transition={{ duration: reducedMotion ? 0 : 0.18, ease: motionEase }}
+            >
+              <a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works</a>
+              <a href="#your-office" onClick={() => setMenuOpen(false)}>Your office</a>
+              <a href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
+              <a className="button button-primary landing-mobile-cta" href={authHref('register')} onClick={navigateToAuth('register')}>
+                Create your office <ArrowUpRight size={16} />
+              </a>
+            </motion.nav>
+          )}
+        </AnimatePresence>
       </header>
 
       <section className="landing-hero" aria-labelledby="landing-title">

@@ -2031,3 +2031,81 @@ body.server-busy * { cursor: progress !important; }
     font-size: 10px;
   }
 }
+
+.landing-menu-toggle { display: none; }
+.landing-mobile-menu { display: none; }
+@media (max-width: 820px) {
+  .landing-nav {
+    position: relative;
+    z-index: 20;
+    flex-wrap: wrap;
+  }
+  .landing-nav-links,
+  .landing-nav-actions { display: none; }
+  .landing-menu-toggle {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(229, 242, 225, .24);
+    border-radius: 12px;
+    color: #f1f4ed;
+    background: rgba(231, 243, 225, .08);
+    cursor: pointer;
+    transition: border-color .18s ease, background-color .18s ease, color .18s ease;
+  }
+  .landing-menu-toggle:hover,
+  .landing-menu-toggle[aria-expanded="true"] {
+    border-color: rgba(216, 242, 157, .62);
+    color: #d8f29d;
+    background: rgba(231, 243, 225, .13);
+  }
+  .landing-mobile-menu {
+    position: static;
+    width: 100%;
+    flex: 1 0 100%;
+    display: grid;
+    gap: 5px;
+    max-height: calc(100svh - 90px);
+    overflow-y: auto;
+    margin-bottom: 8px;
+    padding: 10px;
+    border: 1px solid rgba(232, 243, 228, .32);
+    border-radius: 17px;
+    background: linear-gradient(145deg, rgba(232, 242, 227, .08), rgba(232, 242, 227, .02)), #102d25;
+    box-shadow: 0 20px 50px rgba(3, 21, 14, .36), inset 0 1px 0 rgba(255, 255, 255, .1);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    backdrop-filter: blur(22px) saturate(145%);
+  }
+  .landing-mobile-menu > a:not(.landing-mobile-cta) {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 13px;
+    border-radius: 10px;
+    color: #e2ecdf;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color .15s ease, background-color .15s ease;
+  }
+  .landing-mobile-menu > a:not(.landing-mobile-cta):hover {
+    color: #d8f29d;
+    background: rgba(231, 243, 225, .1);
+  }
+  .landing-mobile-cta {
+    min-height: 46px;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding: 0 14px;
+    color: #173e34;
+    background: #d8f29d;
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .landing-mobile-cta:hover { color: #173e34; background: #e5f7bb; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .landing-mobile-menu { background: #173e34; }
+}
