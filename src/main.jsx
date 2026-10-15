@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
 import './styles.css';
 
-const W = 1000, H = 660, RANGE = 170;
+const W = 1000, H = 660, RANGE = 25;
 const demoPeople = [
   { id: 'maya', name: 'Maya Chen', role: 'Product designer', color: '#df806c', x: 250, y: 220, online: true, demo: true },
   { id: 'arjun', name: 'Arjun Mehta', role: 'Frontend engineer', color: '#6d9b82', x: 310, y: 245, online: true, demo: true },

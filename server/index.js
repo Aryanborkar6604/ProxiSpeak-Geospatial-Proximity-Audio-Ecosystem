@@ -16,7 +16,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true } });
 const PORT = process.env.PORT || 3001;
 const OFFICE_ID = process.env.OFFICE_ID || 'infotact-hq';
-const EARSHOT = 170;
+const EARSHOT = 25;
 // Project office pixels to a small, valid GeoJSON patch where 1 pixel ≈ 1 meter.
 const METERS_PER_DEGREE = 111_320;
 const users = new Map();
