@@ -30,6 +30,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
   const livekitRoomRef = useRef(null);
   const audioElements = useRef({});
   const iceCandidateQueues = useRef({});
+  const pendingOffers = useRef({});
   const audioContextRef = useRef(null);
   const spatialNodesRef = useRef({}); // { [peerId]: { source, gainNode, pannerNode } }
   const positionsRef = useRef({ local: { x: 175, y: 335 }, peers: {} });
@@ -279,8 +280,24 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
   }, [getAudioContext]);
 
   const attachRemoteAudio = useCallback((peerId, stream) => {
+    const playThroughElement = () => {
+      let audioEl = audioElements.current[peerId];
+      if (!audioEl) {
+        audioEl = new Audio();
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        audioElements.current[peerId] = audioEl;
+      }
+      audioEl.srcObject = stream;
+      audioEl.play().catch((playError) => {
+        console.warn('[WebRTC] Remote audio playback was blocked:', playError);
+      });
+    };
     const ctx = getAudioContext();
-    if (!ctx) return;
+    if (!ctx) {
+      playThroughElement();
+      return;
+    }
 
     const existing = spatialNodesRef.current[peerId];
     if (existing) {
@@ -289,6 +306,12 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
         existing.gainNode.disconnect();
         existing.pannerNode?.disconnect();
       } catch (_) {}
+    }
+    const fallbackAudio = audioElements.current[peerId];
+    if (fallbackAudio) {
+      fallbackAudio.pause();
+      fallbackAudio.srcObject = null;
+      delete audioElements.current[peerId];
     }
 
     try {
@@ -307,10 +330,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
       updateSpatialAudio(positionsRef.current.local, positionsRef.current.peers);
     } catch (error) {
       console.error('[WebAudio] Could not spatialize remote audio:', error);
-      const audioEl = new Audio();
-      audioEl.srcObject = stream;
-      audioElements.current[peerId] = audioEl;
-      audioEl.play().catch((playError) => console.warn('[WebAudio] Audio playback was blocked:', playError));
+      playThroughElement();
     }
   }, [getAudioContext, updateSpatialAudio]);
 
@@ -342,6 +362,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     const handleEnterRange = ({ userId: peerId, attenuation = 1 }) => {
       if (rtcMode !== 'livekit') return;
       peerAttenuationsRef.current[peerId] = attenuation;
+      nearbyPeersRef.current = { ...nearbyPeersRef.current, [peerId]: true };
       setPeerAttenuations((previous) => previous[peerId] === attenuation
         ? previous
         : { ...previous, [peerId]: attenuation });
@@ -352,6 +373,9 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     const handleExitRange = ({ userId: peerId }) => {
       if (rtcMode !== 'livekit') return;
       delete peerAttenuationsRef.current[peerId];
+      const nextNearbyPeers = { ...nearbyPeersRef.current };
+      delete nextNearbyPeers[peerId];
+      nearbyPeersRef.current = nextNearbyPeers;
       setPeerAttenuations((previous) => {
         const next = { ...previous };
         delete next[peerId];
@@ -550,7 +574,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
   }, [token, localStream, officeId, rtcConfigReady, rtcMode, localUserId, attachRemoteAudio, removeRemoteAudio, runWithServerActivity]);
 
   useEffect(() => {
-    if (!socket || !localStream || !rtcConfigReady || rtcMode === 'livekit') return undefined;
+    if (!socket || rtcMode === 'livekit') return undefined;
 
     const flushIceQueue = async (peerId, pc) => {
       const queue = iceCandidateQueues.current[peerId] || [];
@@ -568,6 +592,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
       if (peerConnections.current[peerId]) {
         return peerConnections.current[peerId];
       }
+      if (!localStream || !rtcConfigReady) return null;
 
       const pc = new RTCPeerConnection(rtcConfig);
 
@@ -598,15 +623,17 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     const handleEnterRange = async ({ userId: peerId, attenuation = 1.0 }) => {
       console.log(`[WebRTC] Peer entered range: ${peerId} (attenuation: ${attenuation})`);
       peerAttenuationsRef.current[peerId] = attenuation;
+      nearbyPeersRef.current = { ...nearbyPeersRef.current, [peerId]: true };
       setPeerAttenuations((prev) => (
         prev[peerId] === attenuation ? prev : { ...prev, [peerId]: attenuation }
       ));
       setNearbyPeers((prev) => (prev[peerId] ? prev : { ...prev, [peerId]: true }));
 
       // Deterministic initiator logic (lexicographical comparison)
-      if (rtcConfigReady && !peerConnections.current[peerId] && String(localUserId) > String(peerId)) {
+      if (localStream && rtcConfigReady && !peerConnections.current[peerId] && String(localUserId) > String(peerId)) {
         try {
           const pc = createPeerConnection(peerId);
+          if (!pc) return;
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           socket.emit('webrtc:offer', { toUserId: peerId, sdp: offer });
@@ -619,6 +646,9 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     const handleExitRange = ({ userId: peerId }) => {
       console.log(`[WebRTC] Peer exited range: ${peerId}`);
       delete peerAttenuationsRef.current[peerId];
+      const nextNearbyPeers = { ...nearbyPeersRef.current };
+      delete nextNearbyPeers[peerId];
+      nearbyPeersRef.current = nextNearbyPeers;
       setPeerAttenuations((prev) => {
         const next = { ...prev };
         delete next[peerId];
@@ -639,12 +669,21 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
         delete peerConnections.current[peerId];
       }
       delete iceCandidateQueues.current[peerId];
+      delete pendingOffers.current[peerId];
     };
 
     const handleOffer = async ({ fromUserId, sdp }) => {
+      if (!localStream || !rtcConfigReady) {
+        pendingOffers.current[fromUserId] = sdp;
+        return;
+      }
       try {
         let pc = peerConnections.current[fromUserId];
         if (!pc) pc = createPeerConnection(fromUserId);
+        if (!pc) {
+          pendingOffers.current[fromUserId] = sdp;
+          return;
+        }
 
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         await flushIceQueue(fromUserId, pc);
@@ -697,9 +736,18 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice-candidate', handleIceCandidate);
 
-    if (rtcConfigReady) {
-      Object.keys(nearbyPeersRef.current).forEach((peerId) => {
-        handleEnterRange({ userId: peerId, attenuation: peerAttenuationsRef.current[peerId] ?? 1.0 });
+    if (localStream && rtcConfigReady) {
+      const resumePendingConnections = async () => {
+        for (const [peerId, sdp] of Object.entries(pendingOffers.current)) {
+          delete pendingOffers.current[peerId];
+          await handleOffer({ fromUserId: peerId, sdp });
+        }
+        Object.keys(nearbyPeersRef.current).forEach((peerId) => {
+          handleEnterRange({ userId: peerId, attenuation: peerAttenuationsRef.current[peerId] ?? 1.0 });
+        });
+      };
+      resumePendingConnections().catch((error) => {
+        console.error('[WebRTC] Could not resume pending peer connections:', error);
       });
     }
 

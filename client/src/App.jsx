@@ -12,6 +12,7 @@ import {
   Share2, ShieldCheck, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
+import SlidableWorkspaceMenu from './components/SlidableWorkspaceMenu';
 import { playSpatialPing, toggleAmbientSound } from './utils/audioFx';
 
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -155,6 +156,7 @@ function App() {
   const [canvasFps, setCanvasFps] = useState(0);
   const [isAmbienceOn, setIsAmbienceOn] = useState(false);
   const [localCoords, setLocalCoords] = useState({ x: 175, y: 335 });
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   useEffect(() => {
     document.body.classList.toggle('server-busy', serverBusy);
@@ -630,6 +632,24 @@ function App() {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                className={`button text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${
+                  isWorkspaceMenuOpen
+                    ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500 shadow-lg shadow-indigo-500/20'
+                    : 'button-secondary border-indigo-500/30 hover:border-indigo-400 text-indigo-300'
+                }`}
+                onClick={() => setIsWorkspaceMenuOpen((prev) => !prev)}
+                aria-label="Toggle Slidable Workspace Hub"
+              >
+                <Users size={14} className="text-indigo-400" />
+                <span>Live Hub ({people.length})</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Open Slidable Workspace Menu: Live Coworkers & Chat</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 className="button button-secondary text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:border-emerald-500 text-emerald-400 font-semibold"
                 onClick={handleTestPing}
                 aria-label="Test 3D Spatial Audio Ping"
@@ -682,6 +702,31 @@ function App() {
           </Tooltip>
         </div>
       </header>
+
+      <SlidableWorkspaceMenu
+        isOpen={isWorkspaceMenuOpen}
+        onToggle={() => setIsWorkspaceMenuOpen((prev) => !prev)}
+        people={people}
+        peers={peers}
+        localCoords={localCoords}
+        userId={userId}
+        userName={userName}
+        socket={socket}
+        webrtcPeers={webrtcPeers}
+        speakingPeers={speakingPeers}
+        mutedPeers={mutedPeers}
+        peerAttenuations={peerAttenuations}
+        onJumpToUser={(targetId) => {
+          const targetPeer = peers[targetId];
+          if (targetPeer && socket) {
+            toast.info(`Teleporting near ${targetPeer.name || 'teammate'}`);
+            const nx = Math.max(50, Math.min(950, targetPeer.x + 35));
+            const ny = Math.max(50, Math.min(650, targetPeer.y));
+            socket.emit('player:move', { x: nx, y: ny });
+            handlePositionChange({ x: nx, y: ny }, peers);
+          }
+        }}
+      />
 
       <div className="workspace-layout">
         <section className="world-column">

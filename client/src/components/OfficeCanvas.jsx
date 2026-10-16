@@ -72,21 +72,29 @@ export default function OfficeCanvas({
   }, [socket, localUserId, officeState?.officeId, updatePeers]);
 
   useEffect(() => {
-    const current = peersRef.current;
-    const initialPeers = { ...current };
-    let hasChanges = false;
-
-    (officeState?.users || []).forEach((user) => {
+    if (!officeState?.users) return;
+    const liveUsers = officeState.users || [];
+    const nextPeers = {};
+    liveUsers.forEach((user) => {
       if (user.userId !== localUserId && user.location) {
-        if (!current[user.userId] || current[user.userId].x !== user.location[0] || current[user.userId].y !== user.location[1] || current[user.userId].name !== user.name) {
-          initialPeers[user.userId] = { x: user.location[0], y: user.location[1], name: user.name };
-          hasChanges = true;
-        }
+        nextPeers[user.userId] = {
+          x: user.location[0],
+          y: user.location[1],
+          name: user.name || `Teammate`,
+        };
       }
     });
 
+    const currentKeys = Object.keys(peersRef.current);
+    const nextKeys = Object.keys(nextPeers);
+    const hasChanges = currentKeys.length !== nextKeys.length || nextKeys.some((id) => {
+      const cur = peersRef.current[id];
+      const nxt = nextPeers[id];
+      return !cur || cur.x !== nxt.x || cur.y !== nxt.y || cur.name !== nxt.name;
+    });
+
     if (hasChanges) {
-      updatePeers(initialPeers);
+      updatePeers(nextPeers);
     }
   }, [officeState?.users, localUserId, updatePeers]);
 

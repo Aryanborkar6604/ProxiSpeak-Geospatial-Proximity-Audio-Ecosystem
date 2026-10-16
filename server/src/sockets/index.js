@@ -43,15 +43,25 @@ function socketHandler(io) {
         );
         const joinedPositions = [...positionsByUserId.values()];
         const officeSockets = await io.in(officeId).fetchSockets();
+        const activeUserIdsInOffice = new Set(
+          officeSockets.map((s) => s.data.userId).filter(Boolean)
+        );
+        activeUserIdsInOffice.add(userId);
+
         const namesByUserId = new Map(
           officeSockets
             .filter((officeSocket) => officeSocket.data.userName)
             .map((officeSocket) => [officeSocket.data.userId, officeSocket.data.userName]),
         );
-        const usersWithNames = joinedPositions.map((user) => ({
-          ...(user.toObject ? user.toObject() : user),
-          name: namesByUserId.get(user.userId) || `Guest ${String(user.userId).slice(-4)}`,
-        }));
+        namesByUserId.set(userId, socket.data.userName || `User ${String(userId).slice(-4)}`);
+
+        // Filter joinedPositions strictly to users currently online with an active socket
+        const liveUsers = joinedPositions
+          .filter((user) => activeUserIdsInOffice.has(user.userId))
+          .map((user) => ({
+            ...(user.toObject ? user.toObject() : user),
+            name: namesByUserId.get(user.userId) || `Teammate`,
+          }));
         
         socket.emit('office:state', {
           officeId: office.officeId,
@@ -59,7 +69,7 @@ function socketHandler(io) {
           height: office.height,
           obstacles: office.obstacles,
           zones: office.zones,
-          users: usersWithNames,
+          users: liveUsers,
         });
 
         // Broadcast to everyone else in the office so they see the new avatar instantly
@@ -87,6 +97,33 @@ function socketHandler(io) {
         io.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x: validX, y: validY });
       } catch (err) {
         console.error('player:move error', err);
+      }
+    });
+
+    // Chat Signaling: Office broadcast, direct 1-on-1 messaging, and proximity whisper
+    socket.on('chat:send', (payload) => {
+      const officeId = socket.data.officeId;
+      const text = String(payload?.text || '').trim();
+      if (!officeId || !text) return;
+
+      const messageObj = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        senderId: userId,
+        senderName: socket.data.userName || 'Teammate',
+        text: text.slice(0, 500),
+        targetUserId: payload?.targetUserId || null,
+        targetUserName: payload?.targetUserName || null,
+        mode: payload?.mode || 'office', // 'office' | 'dm'
+        timestamp: new Date().toISOString(),
+      };
+
+      if (messageObj.mode === 'dm' && messageObj.targetUserId) {
+        // Direct Message: emit to target user's personal room and echo back to sender
+        io.to(`user_${messageObj.targetUserId}`).emit('chat:message', messageObj);
+        socket.emit('chat:message', messageObj);
+      } else {
+        // Office-wide broadcast
+        io.to(officeId).emit('chat:message', messageObj);
       }
     });
 
