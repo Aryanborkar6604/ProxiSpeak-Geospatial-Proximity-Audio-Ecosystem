@@ -1,0 +1,26 @@
+{
+  "name": "proxispeak-geospatial-proximity-audio-ecosystem",
+  "version": "1.0.0",
+  "description": "ProxiSpeak is a real-time virtual office collaboration platform that leverages React, Node.js, Socket.io, MongoDB geospatial queries, WebRTC, and the Web Audio API to deliver proximity-based voice communication, spatial audio, and seamless interactions among users in a shared virtual workspace.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aryanborkar6604/ProxiSpeak-Geospatial-Proximity-Audio-Ecosystem.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Aryanborkar6604/ProxiSpeak-Geospatial-Proximity-Audio-Ecosystem/issues"
+  },
+  "homepage": "https://github.com/Aryanborkar6604/ProxiSpeak-Geospatial-Proximity-Audio-Ecosystem#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4"
+  }
+}

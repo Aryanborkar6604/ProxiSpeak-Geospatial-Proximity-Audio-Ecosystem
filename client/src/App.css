@@ -1,0 +1,237 @@
+/* =================================
+   ProxiSpeak - Virtual Office
+   ================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Main application */
+.app {
+  width: 100%;
+  max-width: 1400px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 24px;
+  outline: none;
+}
+
+/* Header */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 24px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #172554, #334b91);
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(23, 37, 84, 0.14);
+}
+
+.topbar h1 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(24px, 3vw, 36px);
+}
+
+/* Welcome and status section */
+.welcome {
+  margin: 28px auto 24px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.welcome h2 {
+  margin: 0 0 8px;
+  color: #172554;
+  font-size: clamp(20px, 2.5vw, 28px);
+}
+
+.welcome p {
+  margin: 6px 0;
+}
+
+/* Buttons */
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 3px;
+}
+
+/* Virtual office */
+.office {
+  position: relative;
+  width: 100%;
+  max-width: 900px;
+  height: 420px;
+  margin: 24px auto;
+  overflow: hidden;
+  border: 5px solid #cbd5e1;
+  border-radius: 18px;
+  background-color: #e8f0df;
+  background-image:
+    linear-gradient(#ffffff70 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff70 1px, transparent 1px);
+  background-size: 40px 40px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+/* Office desks */
+.desk {
+  position: absolute;
+  padding: 14px 18px;
+  background: #d6b795;
+  border: 1px solid #94704f;
+  border-radius: 9px;
+  font-weight: 600;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+.desk-one {
+  top: 24px;
+  left: 24px;
+}
+
+.desk-two {
+  top: 24px;
+  right: 24px;
+}
+
+.desk-three {
+  right: 24px;
+  bottom: 24px;
+  background: #bbd7b0;
+}
+
+/* User avatars */
+.avatar {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 32px;
+  user-select: none;
+  transition: left 0.08s linear, top 0.08s linear;
+}
+
+.avatar span {
+  padding: 4px 8px;
+  color: #ffffff;
+  background: #172554;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Footer instructions */
+footer {
+  max-width: 900px;
+  margin: 20px auto 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* Other text and indicators */
+p {
+  line-height: 1.6;
+}
+
+/* Responsive design */
+@media (max-width: 600px) {
+  .app {
+    padding: 12px;
+  }
+
+  .topbar {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+  }
+
+  .welcome {
+    margin: 20px auto;
+  }
+
+  .office {
+    height: 360px;
+    border-width: 4px;
+    border-radius: 12px;
+    background-size: 30px 30px;
+  }
+
+  .desk {
+    padding: 9px 11px;
+    font-size: 12px;
+  }
+
+  .desk-one {
+    top: 14px;
+    left: 12px;
+  }
+
+  .desk-two {
+    top: 14px;
+    right: 12px;
+  }
+
+  .desk-three {
+    right: 12px;
+    bottom: 14px;
+  }
+
+  .avatar {
+    font-size: 27px;
+  }
+
+  .avatar span {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  footer {
+    font-size: 12px;
+  }
+}
