@@ -4,6 +4,10 @@ import { io } from 'socket.io-client';
 import './styles.css';
 
 const W = 1000, H = 660, RANGE = 25;
+const ICE_SERVERS = (() => {
+  try { return JSON.parse(import.meta.env.VITE_ICE_SERVERS || '[{"urls":"stun:stun.l.google.com:19302"}]'); }
+  catch { return [{ urls: 'stun:stun.l.google.com:19302' }]; }
+})();
 const demoPeople = [
   { id: 'maya', name: 'Maya Chen', role: 'Product designer', color: '#df806c', x: 250, y: 220, online: true, demo: true },
   { id: 'arjun', name: 'Arjun Mehta', role: 'Frontend engineer', color: '#6d9b82', x: 310, y: 245, online: true, demo: true },
@@ -16,8 +20,8 @@ const Icon = ({ name, size = 18 }) => {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 };
 function App() {
-  const canvasRef = useRef(null), socketRef = useRef(null), meRef = useRef(null), peersRef = useRef(new Map()), audioRef = useRef(null), positionRef = useRef({ x: 500, y: 335 }), movementRef = useRef({ keys: new Set(), target: null, lastFrame: 0, lastBroadcast: 0, lastUi: 0, dirty: false });
-  const [me, setMe] = useState(null), [peers, setPeers] = useState(demoPeople), [earshot, setEarshot] = useState([]), [connected, setConnected] = useState(false), [micOn, setMicOn] = useState(false), [muted, setMuted] = useState(false), [view, setView] = useState('Office'), [toast, setToast] = useState(''), [sidebarCollapsed, setSidebarCollapsed] = useState(false), [openMenu, setOpenMenu] = useState(''), [displayName, setDisplayName] = useState('');
+  const canvasRef = useRef(null), socketRef = useRef(null), meRef = useRef(null), peersRef = useRef(new Map()), audioRef = useRef(null), remoteStreamsRef = useRef(new Map()), spatialNodesRef = useRef(new Map()), positionRef = useRef({ x: 500, y: 335 }), movementRef = useRef({ keys: new Set(), target: null, lastFrame: 0, lastBroadcast: 0, lastUi: 0, dirty: false });
+  const [me, setMe] = useState(null), [peers, setPeers] = useState(demoPeople), [earshot, setEarshot] = useState([]), [connected, setConnected] = useState(false), [micOn, setMicOn] = useState(false), [muted, setMuted] = useState(false), [soundReady, setSoundReady] = useState(false), [view, setView] = useState('Office'), [toast, setToast] = useState(''), [sidebarCollapsed, setSidebarCollapsed] = useState(false), [openMenu, setOpenMenu] = useState(''), [displayName, setDisplayName] = useState('');
   const [authUser, setAuthUser] = useState(null), [authChecked, setAuthChecked] = useState(false), [authMode, setAuthMode] = useState('login'), [authName, setAuthName] = useState(''), [authEmail, setAuthEmail] = useState(''), [authPassword, setAuthPassword] = useState(''), [authError, setAuthError] = useState(''), [authBusy, setAuthBusy] = useState(false);
   const people = me ? [...peers.filter(p => p.id !== me.id), me] : peers;
   const nearby = me ? peers.filter(p => Math.hypot((p.x || 0) - me.x, (p.y || 0) - me.y) < RANGE) : [];
@@ -40,7 +44,7 @@ function App() {
     socket.on('profile-updated', p => setPeers(curr => curr.map(x => x.id === p.id ? { ...x, ...p } : x)));
     socket.on('speaking', ({ id, speaking }) => setPeers(curr => curr.map(p => p.id === id ? { ...p, speaking } : p)));
     socket.on('user-left', id => { setPeers(curr => curr.filter(p => p.id !== id)); closePeer(id); });
-    socket.on('signal', async ({ from, description, candidate }) => { let pc = peersRef.current.get(from); if (!pc) pc = createPeer(from, false); try { if (description) { await pc.setRemoteDescription(description); if (description.type === 'offer') { const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); socket.emit('signal', { to: from, description: pc.localDescription }); } } if (candidate) await pc.addIceCandidate(candidate); } catch {} });
+    socket.on('signal', ({ from, description, candidate }) => { handleSignal(from, description, candidate).catch(() => {}); });
     return () => { socket.disconnect(); peersRef.current.forEach(pc => pc.close()); };
   }, [authUser?.id]);
 
@@ -83,49 +87,101 @@ function App() {
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', onBlur); };
   }, []);
-  function createPeer(id, initiator) {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }); peersRef.current.set(id, pc);
-    audioRef.current?.stream?.getTracks().forEach(track => pc.addTrack(track, audioRef.current.stream));
+  function createPeer(id) {
+    if (peersRef.current.has(id)) return peersRef.current.get(id);
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc._polite = String(meRef.current?.id || '') > String(id); pc._makingOffer = false; pc._ignoreOffer = false; pc._settingRemoteAnswer = false; pc._pendingCandidates = [];
+    peersRef.current.set(id, pc);
+    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const localTrack = audioRef.current?.stream?.getAudioTracks()[0]; if (localTrack) audioTransceiver.sender.replaceTrack(localTrack).catch(() => {});
     pc.onicecandidate = e => { if (e.candidate) socketRef.current?.emit('signal', { to: id, candidate: e.candidate }); };
-    pc.ontrack = e => attachSpatialAudio(id, e.streams[0]);
-    if (initiator) pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => socketRef.current?.emit('signal', { to: id, description: pc.localDescription })).catch(() => {});
+    pc.ontrack = e => {
+      const stream = e.streams[0] || remoteStreamsRef.current.get(id) || new MediaStream();
+      if (!stream.getTracks().some(track => track.id === e.track.id)) stream.addTrack(e.track);
+      attachSpatialAudio(id, stream);
+    };
+    pc.onnegotiationneeded = async () => {
+      try { pc._makingOffer = true; await pc.setLocalDescription(); socketRef.current?.emit('signal', { to: id, description: pc.localDescription }); }
+      catch (err) { console.warn('Audio negotiation failed:', err); }
+      finally { pc._makingOffer = false; }
+    };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') pc.restartIce(); };
     return pc;
   }
-  function closePeer(id) { peersRef.current.get(id)?.close(); peersRef.current.delete(id); const node = document.getElementById(`audio-${id}`); node?.remove(); }
-  function attachSpatialAudio(id, stream) {
-    if (!audioRef.current?.context) return;
-    const audio = document.createElement('audio'); audio.id = `audio-${id}`; audio.autoplay = true; audio.srcObject = stream; audio.style.display = 'none'; document.body.appendChild(audio);
-    const { context, panner, gain } = audioRef.current; const source = context.createMediaStreamSource(stream); const g = context.createGain(); const p = context.createStereoPanner(); source.connect(g).connect(p).connect(context.destination);
-    peersRef.current.get(id)?.addEventListener('connectionstatechange', () => { if (peersRef.current.get(id)?.connectionState === 'closed') audio.remove(); });
-    audio._spatial = { gain: g, panner: p };
-  }
-  useEffect(() => {
-    if (!micOn || !me || !audioRef.current?.stream) return;
-    for (const person of actualNearby) {
-      let pc = peersRef.current.get(person.id);
-      if (!pc) { if (me.id < person.id) createPeer(person.id, true); continue; }
-      const added = audioRef.current.stream.getTracks().some(track => !pc.getSenders().some(sender => sender.track?.id === track.id));
-      if (added) {
-        audioRef.current.stream.getTracks().forEach(track => { if (!pc.getSenders().some(sender => sender.track?.id === track.id)) pc.addTrack(track, audioRef.current.stream); });
-        if (me.id < person.id) pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => socketRef.current?.emit('signal', { to: person.id, description: pc.localDescription })).catch(() => {});
-      }
+  async function handleSignal(id, description, candidate) {
+    let pc = peersRef.current.get(id) || createPeer(id);
+    if (description) {
+      const readyForOffer = !pc._makingOffer && (pc.signalingState === 'stable' || pc._settingRemoteAnswer);
+      const collision = description.type === 'offer' && !readyForOffer;
+      pc._ignoreOffer = !pc._polite && collision;
+      if (pc._ignoreOffer) { pc._pendingCandidates = []; return; }
+      if (collision && pc._polite) await pc.setLocalDescription({ type: 'rollback' });
+      pc._settingRemoteAnswer = description.type === 'answer';
+      await pc.setRemoteDescription(description);
+      pc._settingRemoteAnswer = false;
+      for (const queued of pc._pendingCandidates.splice(0)) await pc.addIceCandidate(queued);
+      if (description.type === 'offer') { await pc.setLocalDescription(await pc.createAnswer()); socketRef.current?.emit('signal', { to: id, description: pc.localDescription }); }
     }
-  }, [actualNearby.map(p => p.id).join(','), micOn, me?.id]);
-  useEffect(() => {
-    const closeIds = [...peersRef.current.keys()].filter(id => !actualNearby.some(person => person.id === id));
-    closeIds.forEach(closePeer);
-  }, [actualNearby.map(p => p.id).join(',')]);
+    if (candidate && !pc._ignoreOffer) {
+      if (pc.remoteDescription) await pc.addIceCandidate(candidate);
+      else pc._pendingCandidates.push(candidate);
+    }
+  }
+  function closePeer(id) {
+    peersRef.current.get(id)?.close(); peersRef.current.delete(id); remoteStreamsRef.current.delete(id);
+    const nodes = spatialNodesRef.current.get(id); if (nodes) { nodes.source.disconnect(); nodes.gain.disconnect(); nodes.panner.disconnect(); spatialNodesRef.current.delete(id); }
+  }
+  function connectSpatialAudio(id, stream) {
+    const context = audioRef.current?.context; if (!context || context.state === 'closed' || spatialNodesRef.current.has(id)) return;
+    const source = context.createMediaStreamSource(stream), gain = context.createGain(), panner = context.createStereoPanner();
+    source.connect(gain).connect(panner).connect(context.destination); spatialNodesRef.current.set(id, { source, gain, panner });
+    const person = peers.find(item => item.id === id), current = meRef.current;
+    const distance = person && current ? Math.hypot(person.x - current.x, person.y - current.y) : RANGE;
+    gain.gain.value = muted ? 0 : Math.max(0, 1 - distance / RANGE) ** 1.45;
+  }
+  function attachSpatialAudio(id, stream) { remoteStreamsRef.current.set(id, stream); connectSpatialAudio(id, stream); }
   useEffect(() => {
     if (!me) return;
-    for (const p of peers) {
-      const audio = document.getElementById(`audio-${p.id}`); if (!audio?._spatial) continue;
+    const active = new Set(actualNearby.map(person => person.id));
+    for (const id of active) if (!peersRef.current.has(id)) createPeer(id);
+    for (const id of peersRef.current.keys()) if (!active.has(id)) closePeer(id);
+  }, [actualNearby.map(p => p.id).join(','), me?.id]);
+  useEffect(() => {
+    if (!me) return;
+    const context = audioRef.current?.context; if (!context || context.state === 'closed') return;
+    for (const [id, nodes] of spatialNodesRef.current) {
+      const p = peers.find(person => person.id === id); if (!p) continue;
       const dx = p.x - me.x, dy = p.y - me.y, distance = Math.hypot(dx, dy); const gain = Math.max(0, 1 - distance / RANGE) ** 1.45;
-      audio._spatial.gain.gain.setTargetAtTime(muted ? 0 : gain, audioRef.current.context.currentTime, .12); audio._spatial.panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, dx / 115)), audioRef.current.context.currentTime, .12);
+      nodes.gain.gain.setTargetAtTime(muted ? 0 : gain, context.currentTime, .12); nodes.panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, dx / RANGE)), context.currentTime, .12);
     }
-  }, [me?.x, me?.y, peers, muted]);
+  }, [me?.x, me?.y, peers, muted, soundReady]);
+  async function enableOfficeSound() {
+    try {
+      let context = audioRef.current?.context;
+      if (!context || context.state === 'closed') { context = new AudioContext(); audioRef.current = { ...audioRef.current, context }; }
+      if (context.state !== 'running') await context.resume();
+      for (const [id, stream] of remoteStreamsRef.current) connectSpatialAudio(id, stream);
+      setSoundReady(true); return true;
+    } catch { notify('Your browser could not start audio. Check its sound permissions.'); return false; }
+  }
+  async function toggleSound() {
+    if (!soundReady) { if (await enableOfficeSound()) setMuted(false); return; }
+    setMuted(value => !value);
+  }
   async function toggleMic() {
-    if (micOn) { audioRef.current?.stream?.getTracks().forEach(t => t.stop()); peersRef.current.forEach(pc => pc.getSenders().forEach(s => s.track?.kind === 'audio' && pc.removeTrack(s))); audioRef.current = null; setMicOn(false); return; }
-    try { const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false }); const context = new AudioContext(); audioRef.current = { stream, context }; setMicOn(true); setToast('Mic is on. Walk close to someone to start a conversation.'); setTimeout(() => setToast(''), 3200); } catch { setToast('Microphone access was blocked. Check your browser permissions.'); setTimeout(() => setToast(''), 3200); }
+    if (micOn) {
+      const stream = audioRef.current?.stream; stream?.getTracks().forEach(track => track.stop());
+      audioRef.current = { ...audioRef.current, stream: null };
+      await Promise.all([...peersRef.current.values()].map(pc => { const sender = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio')?.sender; return sender?.replaceTrack(null); }));
+      socketRef.current?.emit('speaking', { speaking: false }); setMicOn(false); notify('Your microphone is off.'); return;
+    }
+    try {
+      await enableOfficeSound();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      audioRef.current = { ...audioRef.current, stream };
+      await Promise.all([...peersRef.current.values()].map(pc => { const sender = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio')?.sender; return sender?.replaceTrack(stream.getAudioTracks()[0]); }));
+      setMicOn(true); notify('Mic is on. Walk within 25 pixels of a teammate to chat.');
+    } catch (err) { audioRef.current?.stream?.getTracks().forEach(track => track.stop()); notify(err?.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser settings.' : 'Could not start your microphone. Check that one is connected.'); }
   }
   async function submitAuth(e) {
     e.preventDefault(); setAuthError(''); setAuthBusy(true);
@@ -143,7 +199,9 @@ function App() {
     try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch {}
     audioRef.current?.stream?.getTracks().forEach(track => track.stop()); audioRef.current?.context?.close();
     peersRef.current.forEach(pc => pc.close()); peersRef.current.clear();
-    setMicOn(false); setMuted(false); setMe(null); meRef.current = null; setPeers(demoPeople); setEarshot([]); setOpenMenu(''); setAuthUser(null);
+    for (const nodes of spatialNodesRef.current.values()) { nodes.source.disconnect(); nodes.gain.disconnect(); nodes.panner.disconnect(); }
+    spatialNodesRef.current.clear(); remoteStreamsRef.current.clear(); audioRef.current = null;
+    setMicOn(false); setMuted(false); setSoundReady(false); setMe(null); meRef.current = null; setPeers(demoPeople); setEarshot([]); setOpenMenu(''); setAuthUser(null);
   }
 
   useEffect(() => {
@@ -215,7 +273,7 @@ function App() {
       <button className="nav-item" onClick={()=>setOpenMenu(openMenu==='help'?'':'help')}><span className="nav-emoji">💌</span><span>Help & tips</span></button>
       <div className="side-spacer"/>
       <div className="office-card"><div className="office-card-top"><span className="live-dot"/> <span>THE OFFICE IS OPEN</span></div><strong>A little hello can<br/>make someone’s day.</strong><div className="office-card-avatars">{people.slice(0,4).map((p,i)=><span key={p.id} style={{background:p.color,zIndex:4-i}}>{p.name.charAt(0)}</span>)}<small>{people.length} around</small></div></div>
-      <button className="profile-row" onClick={()=>setOpenMenu(openMenu==='profile'?'':'profile')}><div className="self-avatar">{me?.name?.charAt(0) || 'Y'}<i/></div><div className="profile-info"><strong>{me?.name || 'You'}</strong><small>In the office</small></div><span className="more">⌃</span></button>
+      <button className="profile-row" onClick={()=>setOpenMenu(openMenu==='profile'?'':'profile')}><div className="self-avatar">{me?.name?.charAt(0) || 'Y'}<i/></div><div className="profile-info"><strong>{me?.name || 'You'}</strong><small>{soundReady?'Audio ready':'Enable sound to listen'}</small></div><span className="more">⌃</span></button>
     </aside>
     <main className={`main ${sidebarCollapsed?'sidebar-is-collapsed':''}`}>
       <header className="topbar"><div className="breadcrumb"><span>Infotact</span><b>✿</b><strong>{view}</strong></div><div className="top-actions"><div className="connection"><i className={connected?'online':''}/>{connected?'All cozy & connected':'Finding the office…'}</div><button className="help-btn" onClick={()=>setOpenMenu(openMenu==='help'?'':'help')}>? <span>Need a hand?</span></button><button className="header-avatar" aria-label="Open your profile menu" onClick={()=>setOpenMenu(openMenu==='profile'?'':'profile')}>{me?.name?.charAt(0)||'Y'}</button>
@@ -227,7 +285,7 @@ function App() {
           <div className="page-heading"><div><div className="eyebrow"><Icon name="pin" size={14}/> YOUR VIRTUAL HANGOUT</div><h1>Come on in{me?.name?`, ${me.name.split(' ')[0]}`:''} <span className="sun">✿</span></h1><p>Your people are here. Wander over and let the conversation find you.</p></div><button className="invite-button" onClick={inviteTeam}><Icon name="arrow" size={16}/> Invite a friend</button></div>
           <div className="office-bar"><div className="office-name"><div className="office-icon">🏡</div><div><strong>The Infotact House</strong><span><i className="live-dot"/> Open for company</span></div></div><div className="bar-right"><div className="mini-avatars">{people.slice(0,4).map((p,i)=><span key={p.id} style={{background:p.color,zIndex:4-i}}>{p.name.charAt(0)}</span>)}</div><span className="people-count">{people.length} little neighbors</span><i className="bar-divider"/><span className="privacy"><span/> Just our team</span><div className="office-more-wrap"><button className="more-button" onClick={()=>setOpenMenu(openMenu==='office'?'':'office')} aria-label="Office options">···</button>{openMenu==='office'&&<div className="office-dropdown"><button onClick={()=>{inviteTeam();setOpenMenu('')}}>🔗 Copy invite link</button><button onClick={()=>{setView('Rooms');setOpenMenu('')}}>🪴 Explore the rooms</button><button onClick={()=>{setView('Settings');setOpenMenu('')}}>⚙ Office settings</button></div>}</div></div></div>
           <div className="canvas-frame"><div className="canvas-stage"><canvas ref={canvasRef} onClick={onCanvasClick} aria-label="Interactive overhead virtual office map"/><div className="map-overlay"><span className="map-live"><i/> LITTLE WORLD, LIVE</span><span className="map-hint">Click to stroll · WASD / arrows to wander</span></div><div className="map-controls"><button onClick={()=>moveTo(positionRef.current.x,positionRef.current.y-35)} title="Walk north">↑</button><button onClick={()=>moveTo(positionRef.current.x,positionRef.current.y+35)} title="Walk south">↓</button><button onClick={()=>moveTo(500,335)} title="Come back home">⌂</button></div><div className="map-key"><span><i className="key-you"/> You</span><span><i className="key-person"/> Friends</span><span><i className="key-range"/> Your cozy bubble</span></div></div></div>
-          <div className="below-map"><div className="status-card"><div className="status-icon">☀</div><div className="status-copy"><strong>{nearby.length?`${nearby.length} ${nearby.length===1?'friend':'friends'} close by`:'A peaceful little moment'}</strong><span>{nearby.length?'You’re close enough for a friendly chat.':'Wander over when you’re ready for a chat.'}</span></div><div className="signal-bars"><i/><i/><i/><i/><i/></div></div><div className="audio-controls"><button className={`mic-button ${micOn?'mic-active':''}`} onClick={toggleMic}><Icon name="mic" size={17}/>{micOn?'Mic is on':'Say hello'}</button><button className={`sound-button ${muted?'is-muted':''}`} onClick={()=>setMuted(v=>!v)}><Icon name="sound" size={17}/>{muted?'Unmute sound':'Sound on'}</button></div></div>
+          <div className="below-map"><div className="status-card"><div className="status-icon">☀</div><div className="status-copy"><strong>{nearby.length?`${nearby.length} ${nearby.length===1?'friend':'friends'} close by`:'A peaceful little moment'}</strong><span>{nearby.length?'You’re close enough for a friendly chat.':'Wander over when you’re ready for a chat.'}</span></div><div className="signal-bars"><i/><i/><i/><i/><i/></div></div><div className="audio-controls"><button className={`mic-button ${micOn?'mic-active':''}`} onClick={toggleMic}><Icon name="mic" size={17}/>{micOn?'Mic is on':'Say hello'}</button><button className={`sound-button ${muted?'is-muted':''}`} onClick={toggleSound}><Icon name="sound" size={17}/>{!soundReady?'Enable sound':muted?'Unmute sound':'Sound on'}</button></div></div>
           <section className="people-section"><div className="section-heading"><div><h2>Your neighbors <span>{people.length}</span></h2><p>Good company, right around the corner.</p></div><button className="see-all" onClick={()=>setView('People')}>Meet everyone <Icon name="arrow" size={14}/></button></div><div className="people-grid">{people.slice(0,4).map(p=><div className="person-card" key={p.id}><div className="person-face" style={{'--person':p.color}}>{p.name.split(' ').map(x=>x[0]).join('').slice(0,2)}<span className={p.speaking?'speaking-dot':'presence-dot'}/></div><div className="person-detail"><strong>{p.name}{p.id===me?.id?' (you)':''}</strong><span>{p.role||'In the office'}</span></div>{nearby.some(n=>n.id===p.id)?<span className="nearby-tag"><i/> Nearby</span>:<span className="quiet-tag">Around</span>}</div>)}</div></section>
           <footer>A softer place to work together <span>✿</span></footer>
         </>}

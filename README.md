@@ -1,29 +1,25 @@
-<<<<<<< HEAD
 # ProxiSpeak
 
-A single shared virtual office for the Infotact team. The React app draws one overhead office on an HTML Canvas; users move continuously with held WASD/arrow keys or walk smoothly toward a clicked destination. Socket.io broadcasts rounded coordinates at up to 20 updates per second while moving, plus the final position when movement stops. The server sends peer presence only within a 170-pixel earshot radius. When users enable their microphones, the browser negotiates WebRTC audio with nearby users and uses the Web Audio API for distance attenuation and left/right stereo panning.
+A single shared virtual office for the Infotact team. The React app draws an overhead office on an HTML Canvas, and Socket.io shares avatar movement in real time. Signed-in users within **25 pixels** negotiate WebRTC audio; the Web Audio API attenuates and pans the received audio according to avatar position.
 
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; leave `MONGODB_URI` unset to use in-memory presence, or set it to a MongoDB connection string.
+2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts, sessions, and presence are held in memory and are lost when the server restarts.
 3. Run `npm install`, then `npm run dev`.
-4. Open `http://localhost:5173` in two browser windows to try live movement and peer audio. Allow microphone access in both windows and move within earshot.
+4. Open `http://localhost:5173` in two browser profiles or windows, create/sign in to a different account in each, and allow microphone access.
+5. Click **Enable sound** in both browsers, click **Say hello** to enable a microphone, and move the avatars within 25 pixels of each other.
 
-Microphone access requires `localhost` or HTTPS. The first five colored colleagues are illustrative map occupants so the office does not look empty in a single-user demo; they are not connected audio peers. Only connected browsers establish WebRTC sessions. For a remotely hosted app, configure HTTPS/WSS, TURN servers, and restrict the allowed client origin before inviting a team.
+Microphone access requires `localhost` or HTTPS. The sample map occupants are illustrative only and are not connected audio peers. The default STUN server is suitable for development, but restrictive networks may require TURN; set `VITE_ICE_SERVERS` in `.env` to a JSON array supplied by your ICE/TURN provider. Production TURN credentials should be short-lived. For a remotely hosted app, use HTTPS/WSS and restrict the allowed client origin.
 
 ## MongoDB
 
-The server creates `people.location` as a GeoJSON `Point` and creates a `2dsphere` index. Office pixel coordinates are projected into a small valid GeoJSON range at approximately one meter per pixel. Earshot membership uses `$near`; the cluster endpoint (`/api/office/cluster?userId=...`) uses `$geoWithin`/`$centerSphere`. All participants share the `OFFICE_ID` configured in `.env`.
+When configured, the server stores accounts and people, creates a GeoJSON `2dsphere` index, uses `$near` to filter earshot membership, and uses `$geoWithin`/`$centerSphere` for the cluster endpoint. Office pixel coordinates are projected into a small GeoJSON range at approximately one meter per pixel. All participants share the `OFFICE_ID` configured in `.env`.
 
 ## Project layout
 
-- `src/main.jsx` — Canvas office, movement controls, Socket.io client, WebRTC setup, spatial gain and pan.
+- `src/main.jsx` — Canvas office, movement, Socket.io client, WebRTC negotiation, and spatial audio.
 - `src/styles.css` — office interface styling.
-- `server/index.js` — Express health/cluster endpoints, Socket.io signaling, MongoDB geospatial persistence and proximity filtering.
+- `server/index.js` — Express auth and cluster endpoints, Socket.io signaling, and MongoDB proximity filtering.
 
-The current signaling topology is a peer-to-peer mesh, suited to a small team prototype. A 50+ person production office should move audio to an SFU (such as LiveKit/mediasoup) and use Redis-backed Socket.io adapters across server instances; a full mesh is not efficient at that scale.
-=======
-# ProxiSpeak-Geospatial-Proximity-Audio-Ecosystem
-ProxiSpeak is a real-time virtual office collaboration platform that leverages React, Node.js, Socket.io, MongoDB geospatial queries, WebRTC, and the Web Audio API to deliver proximity-based voice communication, spatial audio, and seamless interactions among users in a shared virtual workspace.
->>>>>>> origin/arpitzade1573-spec!
+The current audio topology is a peer-to-peer mesh intended for a small prototype. For 50+ concurrent users, move audio to an SFU such as LiveKit or mediasoup and use a Redis-backed Socket.io adapter across server instances.
