@@ -6,14 +6,18 @@ async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
-    : (req.query.token || req.headers['x-access-token']);
+    : null;
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
   try {
-    const decoded = jwt.verify(token, env.JWT_SECRET);
+    const decoded = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+      audience: 'proxispeak-client',
+      issuer: 'proxispeak',
+    });
     if (decoded.authVersion !== 1 || typeof decoded.userId !== 'string') {
       return res.status(401).json({ error: 'Your session is invalid or expired. Please sign in again.' });
     }

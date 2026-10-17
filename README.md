@@ -18,20 +18,21 @@ The automated spatial benchmark checks 50 simulated users and verifies spatial r
 2. In Render, choose **New → Blueprint**, connect the GitHub repository, and let Render read the root `render.yaml`. It builds the React client and Node.js server into one service, so the site, REST API, and Socket.IO use one HTTPS origin.
 3. When prompted for `MONGODB_URI`, enter the Atlas connection string for the app database. Render generates `JWT_SECRET` for the service. Do not add secrets to Git or Vite client variables.
 4. Wait for the Render health check at `/api/health` to pass. The public app is at `https://<your-render-service>.onrender.com`; the API base is `https://<your-render-service>.onrender.com/api`.
-5. Use those public API URLs in Postman:
+5. If you use a custom website domain, set `CLIENT_URLS` on Render to the comma-separated exact origins allowed to call the API. Add the user IDs of layout administrators to `OFFICE_ADMIN_USER_IDS`; leave it empty to disable layout edits.
+6. Use those public API URLs in Postman:
    - `POST https://<your-render-service>.onrender.com/api/auth/register` with JSON `{"name":"Alex Morgan","email":"alex@example.com","password":"YourPassword123"}`.
    - `POST https://<your-render-service>.onrender.com/api/auth/login` with JSON `{"email":"alex@example.com","password":"YourPassword123"}`.
    - `GET https://<your-render-service>.onrender.com/api/auth/me` with `Authorization: Bearer <token>`.
 
-Office invitations use the deployed website origin and open the landing page with the office ID preserved. To share a link while developing locally, set `VITE_PUBLIC_APP_URL` in `client/.env` to the deployed website origin; the app will not copy or share localhost or private-network URLs. The invite dialog can copy the link or open a prefilled WhatsApp message. Slow API requests show a waiting indicator and progress cursor.
+Office invitations use the deployed website origin and open the landing page with the office ID preserved. Anyone who is signed in and knows an office ID can join it; per-person membership and invite revocation are not implemented yet. To share a link while developing locally, set `VITE_PUBLIC_APP_URL` in `client/.env` to the deployed website origin; the app will not copy or share localhost or private-network URLs. The invite dialog can copy the link or open a prefilled WhatsApp message. Slow API requests show a waiting indicator and progress cursor.
 
 The blueprint starts with Render's free web-service plan; free services may sleep while idle and can take time to wake. Upgrade the service plan for an always-on production deployment. MongoDB Atlas billing and network access are managed separately from Render.
 
 ## Accounts and authentication
 
-Create an account in the registration form with a name, email, and password of at least 8 characters. Passwords are salted and hashed with bcrypt before they are stored in MongoDB; the plaintext password is never stored. Sign-in checks the password against that hash and issues an 8-hour JWT. The browser keeps the token in `sessionStorage` only, verifies the session against MongoDB on startup, and sends it on authenticated API and Socket.IO connections. Protected API requests and new socket connections reject expired tokens, unavailable/deleted accounts, and MongoDB outages; the live socket disconnects when its token expires. Users sign in again in a new browser session.
+Create an account in the registration form with a name, email, and password of at least 8 characters. Passwords are salted and hashed with bcrypt before they are stored in MongoDB; the plaintext password is never stored. Sign-in checks the password against that hash and issues a one-hour HS256 JWT scoped to ProxiSpeak. The browser keeps the token in `sessionStorage` only, verifies the session against MongoDB on startup, and sends it on authenticated API and Socket.IO connections. Protected API requests and new socket connections reject expired tokens, unavailable/deleted accounts, and MongoDB outages; the live socket disconnects when its token expires. Users sign in again in a new browser session. Existing sessions must sign in again after this JWT change.
 
-Former name-and-email-only records can be upgraded to password accounts when someone registers with the same email. Email ownership is not independently verified; add an email verification provider before using registration for sensitive or public deployments. Set `JWT_SECRET` to a random value at least 32 characters long in production.
+Email ownership is not independently verified, so registration should be limited to a trusted audience until an email verification provider is added. Registration cannot claim an existing legacy account without a password; contact an administrator to recover those records. Set `JWT_SECRET` to a random value at least 32 characters long in production.
 
 ## Reliable WebRTC connectivity
 

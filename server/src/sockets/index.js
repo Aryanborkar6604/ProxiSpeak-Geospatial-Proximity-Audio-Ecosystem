@@ -1,7 +1,51 @@
 const { socketAuthMiddleware } = require('./middlewares');
 const officeService = require('../services/office.service');
 const positionService = require('../services/position.service');
-const { cleanupUser } = require('../services/proximity.service');
+const { cleanupUser, arePeersInRange } = require('../services/proximity.service');
+
+function allowSocketEvent(socket, eventName, { windowMs, max }) {
+  const now = Date.now();
+  const limits = socket.data.eventLimits || (socket.data.eventLimits = {});
+  let bucket = limits[eventName];
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = limits[eventName] = { count: 0, resetAt: now + windowMs };
+  }
+  bucket.count += 1;
+  return bucket.count <= max;
+}
+
+function isValidUserId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function isValidSessionDescription(value, expectedType) {
+  return Boolean(
+    value && typeof value === 'object' &&
+    value.type === expectedType &&
+    typeof value.sdp === 'string' &&
+    value.sdp.length > 0 && value.sdp.length <= 64 * 1024
+  );
+}
+
+function isValidIceCandidate(value) {
+  return Boolean(
+    value && typeof value === 'object' &&
+    typeof value.candidate === 'string' &&
+    value.candidate.length > 0 && value.candidate.length <= 4096 &&
+    (value.sdpMid == null || (typeof value.sdpMid === 'string' && value.sdpMid.length <= 64)) &&
+    (value.sdpMLineIndex == null || Number.isInteger(value.sdpMLineIndex))
+  );
+}
+
+async function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
+  const officeId = socket.data.officeId;
+  if (!officeId || !arePeersInRange(socket.data.userId, targetUserId)) return;
+
+  const userSockets = await io.in(`user_${targetUserId}`).fetchSockets();
+  userSockets
+    .filter((targetSocket) => targetSocket.data.officeId === officeId)
+    .forEach((targetSocket) => targetSocket.emit(eventName, payload));
+}
 
 function socketHandler(io) {
   io.use(socketAuthMiddleware);
@@ -20,14 +64,19 @@ function socketHandler(io) {
 
     socket.on('office:join', async (payload) => {
       try {
-        const { officeId } = payload;
-        if (!officeId) return;
+        if (!allowSocketEvent(socket, 'office:join', { windowMs: 60_000, max: 5 })) return;
+        const officeId = payload?.officeId;
+        if (typeof officeId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(officeId)) return;
+        if (socket.data.officeId && socket.data.officeId !== officeId) return;
+
+        // Resolve the requested office before adding this authenticated socket to its room.
+        const office = await officeService.getOffice(officeId);
+        if (!office) return;
 
         socket.join(officeId);
         socket.data.officeId = officeId;
 
         // Check if user already had a saved position or spawn at default
-        const office = await officeService.getOffice(officeId);
         const existingPos = await positionService.getPosition(userId, officeId);
         const spawnX = existingPos?.location?.[0] ?? (150 + Math.floor(Math.random() * 80));
         const spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
@@ -83,44 +132,72 @@ function socketHandler(io) {
 
     socket.on('player:move', async (payload) => {
       try {
-        const { x, y } = payload;
+        if (!allowSocketEvent(socket, 'player:move', { windowMs: 1000, max: 20 })) return;
+        const x = payload?.x;
+        const y = payload?.y;
         const officeId = socket.data.officeId;
-        if (!officeId || typeof x !== 'number' || typeof y !== 'number') return;
-        
-        // Boundary validation
-        const validX = Math.max(0, Math.min(x, 1000));
-        const validY = Math.max(0, Math.min(y, 700));
+        if (!officeId || !Number.isFinite(x) || !Number.isFinite(y)) return;
 
-        await positionService.updatePosition(userId, officeId, validX, validY);
+        const office = officeService.getCachedOffice(officeId);
+        if (!office || x < 0 || y < 0 || x > office.width || y > office.height) return;
+
+        await positionService.updatePosition(userId, officeId, x, y);
 
         // Broadcast to room
-        io.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x: validX, y: validY });
+        io.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x, y });
       } catch (err) {
         console.error('player:move error', err);
       }
     });
 
+function sanitizeHtmlText(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
+}
+
     // Chat Signaling: Office broadcast, direct 1-on-1 messaging, and proximity whisper
-    socket.on('chat:send', (payload) => {
+    socket.on('chat:send', async (payload) => {
+      if (!allowSocketEvent(socket, 'chat:send', { windowMs: 60_000, max: 12 })) return;
       const officeId = socket.data.officeId;
-      const text = String(payload?.text || '').trim();
-      if (!officeId || !text) return;
+      const rawText = typeof payload?.text === 'string' ? payload.text.trim() : '';
+      const mode = payload?.mode || 'office';
+      if (!officeId || !rawText || rawText.length > 500 || !['office', 'dm'].includes(mode)) return;
+
+      const sanitizedText = sanitizeHtmlText(rawText);
+      if (!sanitizedText) return;
 
       const messageObj = {
         id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         senderId: userId,
-        senderName: socket.data.userName || 'Teammate',
-        text: text.slice(0, 500),
-        targetUserId: payload?.targetUserId || null,
-        targetUserName: payload?.targetUserName || null,
-        mode: payload?.mode || 'office', // 'office' | 'dm'
+        senderName: sanitizeHtmlText(socket.data.userName || 'Teammate'),
+        text: sanitizedText,
+        targetUserId: null,
+        targetUserName: null,
+        mode,
         timestamp: new Date().toISOString(),
       };
 
-      if (messageObj.mode === 'dm' && messageObj.targetUserId) {
-        // Direct Message: emit to target user's personal room and echo back to sender
-        io.to(`user_${messageObj.targetUserId}`).emit('chat:message', messageObj);
-        socket.emit('chat:message', messageObj);
+      if (mode === 'dm') {
+        const targetUserId = payload?.targetUserId;
+        if (!isValidUserId(targetUserId) || targetUserId === userId) return;
+        try {
+          const officeSockets = await io.in(officeId).fetchSockets();
+          const targetSockets = officeSockets.filter((officeSocket) => officeSocket.data.userId === targetUserId);
+          if (targetSockets.length === 0) return;
+          messageObj.targetUserId = targetUserId;
+          messageObj.targetUserName = targetSockets[0].data.userName || 'Teammate';
+          targetSockets.forEach((targetSocket) => targetSocket.emit('chat:message', messageObj));
+          socket.emit('chat:message', messageObj);
+        } catch (error) {
+          console.warn('[chat] Could not deliver a direct message:', error.message);
+        }
       } else {
         // Office-wide broadcast
         io.to(officeId).emit('chat:message', messageObj);
@@ -130,10 +207,11 @@ function socketHandler(io) {
     // Voice Activity Detection (VAD) signaling
     socket.on('player:speaking', (payload) => {
       const officeId = socket.data.officeId;
-      if (officeId) {
+      if (officeId && typeof payload?.isSpeaking === 'boolean' &&
+        allowSocketEvent(socket, 'player:speaking', { windowMs: 10_000, max: 30 })) {
         socket.to(officeId).emit('player:speaking', {
           userId,
-          isSpeaking: Boolean(payload?.isSpeaking),
+          isSpeaking: payload.isSpeaking,
         });
       }
     });
@@ -141,25 +219,49 @@ function socketHandler(io) {
     // Mute status signaling
     socket.on('player:mute', (payload) => {
       const officeId = socket.data.officeId;
-      if (officeId) {
+      if (officeId && typeof payload?.isMuted === 'boolean' &&
+        allowSocketEvent(socket, 'player:mute', { windowMs: 60_000, max: 30 })) {
         socket.to(officeId).emit('player:muted', {
           userId,
-          isMuted: Boolean(payload?.isMuted),
+          isMuted: payload.isMuted,
         });
       }
     });
 
-    socket.on('webrtc:offer', (payload) => {
-      // SEC-17: Relay offer to peer personal room
-      io.to(`user_${payload.toUserId}`).emit('webrtc:offer', { fromUserId: userId, sdp: payload.sdp });
+    socket.on('webrtc:offer', async (payload) => {
+      const targetUserId = payload?.toUserId;
+      if (!isValidUserId(targetUserId) ||
+        !isValidSessionDescription(payload?.sdp, 'offer') ||
+        !allowSocketEvent(socket, 'webrtc:offer', { windowMs: 60_000, max: 20 })) return;
+      try {
+        await relayToNearbyPeer(io, socket, targetUserId, 'webrtc:offer', { fromUserId: userId, sdp: payload.sdp });
+      } catch (error) {
+        console.warn('[webrtc] Could not relay offer:', error.message);
+      }
     });
 
-    socket.on('webrtc:answer', (payload) => {
-      io.to(`user_${payload.toUserId}`).emit('webrtc:answer', { fromUserId: userId, sdp: payload.sdp });
+    socket.on('webrtc:answer', async (payload) => {
+      const targetUserId = payload?.toUserId;
+      if (!isValidUserId(targetUserId) ||
+        !isValidSessionDescription(payload?.sdp, 'answer') ||
+        !allowSocketEvent(socket, 'webrtc:answer', { windowMs: 60_000, max: 20 })) return;
+      try {
+        await relayToNearbyPeer(io, socket, targetUserId, 'webrtc:answer', { fromUserId: userId, sdp: payload.sdp });
+      } catch (error) {
+        console.warn('[webrtc] Could not relay answer:', error.message);
+      }
     });
 
-    socket.on('webrtc:ice-candidate', (payload) => {
-      io.to(`user_${payload.toUserId}`).emit('webrtc:ice-candidate', { fromUserId: userId, candidate: payload.candidate });
+    socket.on('webrtc:ice-candidate', async (payload) => {
+      const targetUserId = payload?.toUserId;
+      if (!isValidUserId(targetUserId) ||
+        !isValidIceCandidate(payload?.candidate) ||
+        !allowSocketEvent(socket, 'webrtc:ice-candidate', { windowMs: 10_000, max: 200 })) return;
+      try {
+        await relayToNearbyPeer(io, socket, targetUserId, 'webrtc:ice-candidate', { fromUserId: userId, candidate: payload.candidate });
+      } catch (error) {
+        console.warn('[webrtc] Could not relay ICE candidate:', error.message);
+      }
     });
 
     socket.on('disconnect', async () => {

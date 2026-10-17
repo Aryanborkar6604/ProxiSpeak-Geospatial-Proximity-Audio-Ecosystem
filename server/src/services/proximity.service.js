@@ -212,6 +212,14 @@ function cleanupUser(userId) {
   delete meshTelemetry.lastWarningTime[userId];
 }
 
+function arePeersInRange(userId, peerId) {
+  if (!userId || !peerId || userId === peerId) return false;
+  return Boolean(
+    previousProximitySets.get(userId)?.has(peerId) &&
+    previousProximitySets.get(peerId)?.has(userId)
+  );
+}
+
 function startProximityService(io) {
   // Runs high-frequency in-memory checks every 100ms with zero DB overhead
   setInterval(() => {
@@ -224,6 +232,7 @@ module.exports = {
   cleanupUser,
   meshTelemetry,
   recomputeProximity,
+  arePeersInRange,
   lineSegmentsIntersect,
   computeObstacleAttenuation,
 };

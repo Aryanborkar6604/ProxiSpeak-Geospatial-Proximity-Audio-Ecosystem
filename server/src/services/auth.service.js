@@ -6,7 +6,10 @@ const env = require('../config/env');
 const User = require('../models/User');
 
 const PASSWORD_ROUNDS = 12;
-const SESSION_TTL = '8h';
+const SESSION_TTL = '1h';
+const JWT_ISSUER = 'proxispeak';
+const JWT_AUDIENCE = 'proxispeak-client';
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), PASSWORD_ROUNDS);
 
 // In-memory fallback caches when database is disconnected or in local mode
 const memoryUsersByEmail = new Map();
@@ -41,7 +44,16 @@ function serializeUser(user) {
 }
 
 function createSession(user) {
-  const token = jwt.sign({ userId: user.userId, authVersion: 1 }, env.JWT_SECRET, { expiresIn: SESSION_TTL });
+  const token = jwt.sign(
+    { userId: user.userId, authVersion: 1 },
+    env.JWT_SECRET,
+    {
+      algorithm: 'HS256',
+      audience: JWT_AUDIENCE,
+      expiresIn: SESSION_TTL,
+      issuer: JWT_ISSUER,
+    },
+  );
   return { user: serializeUser(user), token };
 }
 
@@ -57,9 +69,16 @@ async function findUserByEmail(email) {
       const caseMatch = await User.findOne({ email: new RegExp(`^${escapedEmail}$`, 'i') }).select('+passwordHash');
       if (caseMatch) return caseMatch;
     } catch (err) {
+      if (env.NODE_ENV === 'production') {
+        throw createAuthError(503, 'Account services are temporarily unavailable.');
+      }
       console.warn('[auth] Error querying MongoDB user, falling back to memory:', err.message);
     }
+  } else if (env.NODE_ENV === 'production') {
+    throw createAuthError(503, 'Account services are temporarily unavailable.');
   }
+
+  if (env.NODE_ENV === 'production') return null;
 
   // Memory fallback
   return memoryUsersByEmail.get(normalized) || null;
@@ -85,6 +104,9 @@ function validateCredentials({ name, email, password }, includeName = false) {
 
 async function registerUser(input) {
   ensureDbConnection();
+  if (!isDbConnected() && env.NODE_ENV === 'production') {
+    throw createAuthError(503, 'Account services are temporarily unavailable.');
+  }
   const credentials = validateCredentials(input, true);
   const existing = await findUserByEmail(credentials.email);
   if (existing?.passwordHash) {
@@ -93,20 +115,21 @@ async function registerUser(input) {
 
   const passwordHash = await bcrypt.hash(credentials.password, PASSWORD_ROUNDS);
 
+  if (existing) {
+    existing.name = credentials.name;
+    existing.email = credentials.email;
+    existing.passwordHash = passwordHash;
+    if (typeof existing.save === 'function') {
+      await existing.save();
+    }
+    const session = createSession(existing);
+    memoryUsersByEmail.set(credentials.email, existing);
+    memoryUsersById.set(existing.userId, existing);
+    return session;
+  }
+
   if (isDbConnected()) {
     try {
-      if (existing && existing.save) {
-        existing.name = credentials.name;
-        existing.email = credentials.email;
-        existing.passwordHash = passwordHash;
-        existing.isActive = true;
-        await existing.save();
-        const session = createSession(existing);
-        memoryUsersByEmail.set(credentials.email, existing);
-        memoryUsersById.set(existing.userId, existing);
-        return session;
-      }
-
       const user = await User.create({
         userId: `usr_${crypto.randomUUID()}`,
         name: credentials.name,
@@ -120,6 +143,9 @@ async function registerUser(input) {
     } catch (error) {
       if (error.code === 11000) {
         throw createAuthError(409, 'An account with this email already exists. Sign in instead.');
+      }
+      if (env.NODE_ENV === 'production') {
+        throw createAuthError(503, 'Account services are temporarily unavailable.');
       }
       console.warn('[auth] MongoDB register write error, saving to memory fallback:', error.message);
     }
@@ -141,9 +167,13 @@ async function registerUser(input) {
 
 async function loginUser(input) {
   ensureDbConnection();
+  if (!isDbConnected() && env.NODE_ENV === 'production') {
+    throw createAuthError(503, 'Account services are temporarily unavailable.');
+  }
   const credentials = validateCredentials(input);
   const user = await findUserByEmail(credentials.email);
   if (!user || user.isActive === false || !user.passwordHash) {
+    await bcrypt.compare(credentials.password, DUMMY_PASSWORD_HASH);
     throw createAuthError(401, 'Email or password is incorrect.');
   }
 
@@ -170,9 +200,16 @@ async function getAuthenticatedUser(userId) {
         return serializeUser(user);
       }
     } catch (err) {
+      if (env.NODE_ENV === 'production') {
+        throw createAuthError(503, 'Account services are temporarily unavailable.');
+      }
       console.warn('[auth] Error in getAuthenticatedUser, falling back to memory:', err.message);
     }
+  } else if (env.NODE_ENV === 'production') {
+    throw createAuthError(503, 'Account services are temporarily unavailable.');
   }
+
+  if (env.NODE_ENV === 'production') return null;
 
   const memoryUser = memoryUsersById.get(userId);
   if (memoryUser && memoryUser.isActive !== false) {

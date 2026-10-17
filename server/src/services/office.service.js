@@ -3,6 +3,7 @@ const Office = require('../models/Office');
 
 // In-memory cache for office layouts
 const officeCache = new Map();
+const MAX_CACHED_OFFICES = 1000;
 
 const DEFAULT_OBSTACLES = [
   // Library partition wall (leaves hallway below)
@@ -18,6 +19,7 @@ const DEFAULT_ZONES = [
   { name: 'STUDIO', shape: 'rect', x: 389, y: 82, w: 337, h: 242 },
   { name: 'LOUNGE', shape: 'rect', x: 710, y: 392, w: 226, h: 186 },
 ];
+const OFFICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 function makeDefaultOffice(officeId) {
   return {
@@ -31,22 +33,40 @@ function makeDefaultOffice(officeId) {
   };
 }
 
+function cacheOffice(officeId, office) {
+  officeCache.delete(officeId);
+  officeCache.set(officeId, office);
+  if (officeCache.size > MAX_CACHED_OFFICES) {
+    const oldestOfficeId = officeCache.keys().next().value;
+    officeCache.delete(oldestOfficeId);
+  }
+}
+
 async function getOffice(officeId) {
+  if (typeof officeId !== 'string' || !OFFICE_ID_PATTERN.test(officeId)) return null;
   if (officeCache.has(officeId)) {
     return officeCache.get(officeId);
   }
 
   const defaultOffice = makeDefaultOffice(officeId);
-  officeCache.set(officeId, defaultOffice);
 
   if (mongoose.connection.readyState !== 1) {
+    cacheOffice(officeId, defaultOffice);
     return defaultOffice;
   }
 
-  let office = await Office.findOne({ officeId }).catch(() => null);
+  let office = await Office.findOne({ officeId }).catch((error) => {
+    throw error;
+  });
   if (!office) {
-    office = new Office(defaultOffice);
-    await office.save().catch((err) => console.warn('Office seed save warning:', err.message));
+    if (officeId === 'main-office') {
+      office = new Office(defaultOffice);
+      await office.save().catch((err) => console.warn('Office seed save warning:', err.message));
+    } else {
+      // Custom offices are virtual until an administrator explicitly persists their layout.
+      cacheOffice(officeId, defaultOffice);
+      return defaultOffice;
+    }
   } else if (!office.obstacles || office.obstacles.length === 0) {
     office.obstacles = DEFAULT_OBSTACLES;
     office.zones = DEFAULT_ZONES;
@@ -54,7 +74,7 @@ async function getOffice(officeId) {
   }
 
   const plainOffice = office.toObject ? office.toObject() : office;
-  officeCache.set(officeId, plainOffice);
+  cacheOffice(officeId, plainOffice);
   return plainOffice;
 }
 
@@ -72,7 +92,7 @@ async function updateOffice(officeId, data) {
     ...officeCache.get(officeId),
     ...updatePayload,
   };
-  officeCache.set(officeId, nextOffice);
+  cacheOffice(officeId, nextOffice);
 
   if (mongoose.connection.readyState !== 1) {
     return nextOffice;
@@ -85,7 +105,7 @@ async function updateOffice(officeId, data) {
   );
 
   const plain = updated.toObject ? updated.toObject() : updated;
-  officeCache.set(officeId, plain);
+  cacheOffice(officeId, plain);
   return plain;
 }
 

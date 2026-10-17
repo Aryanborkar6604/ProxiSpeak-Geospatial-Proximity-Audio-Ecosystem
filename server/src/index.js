@@ -10,6 +10,8 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth.routes');
 const rtcRoutes = require('./routes/rtc.routes');
 const socketHandler = require('./sockets');
+const { requireAuth } = require('./middlewares/auth.middleware');
+const { createRateLimiter } = require('./middlewares/rate-limit.middleware');
 
 async function startServer() {
   const dbConnected = await connectDB();
@@ -21,12 +23,42 @@ async function startServer() {
   }
 
   const app = express();
+  if (env.NODE_ENV === 'production') app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+
+  const allowedOrigins = new Set([
+    ...env.CLIENT_URLS,
+    process.env.RENDER_EXTERNAL_URL,
+  ].filter(Boolean).map((origin) => {
+    try { return new URL(origin).origin; } catch { return ''; }
+  }).filter(Boolean));
+  const originAllowed = (origin) => {
+    if (!origin || allowedOrigins.has(origin)) return true;
+    if (env.NODE_ENV === 'production') return false;
+    try {
+      const parsedOrigin = new URL(origin);
+      return parsedOrigin.protocol === 'http:' &&
+        (parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1');
+    } catch {
+      return false;
+    }
+  };
+  const corsOptions = {
+    origin(origin, callback) {
+      callback(null, originAllowed(origin));
+    },
+    methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+    maxAge: 600,
+  };
+
   const server = http.createServer(app);
   const io = new Server(server, {
-    cors: {
-      origin: true,
-      credentials: true,
-      methods: ["GET", "POST"]
+    cors: corsOptions,
+    maxHttpBufferSize: 128 * 1024,
+    allowRequest(req, callback) {
+      callback(null, originAllowed(req.headers.origin));
     }
   });
 
@@ -46,13 +78,55 @@ async function startServer() {
     console.log('[Phase 3] Single-instance mode active (provide REDIS_URL to enable cross-server cluster scaling)');
   }
 
-  app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json());
-
+  app.use(cors(corsOptions));
+  const connectSources = ["'self'"];
+  if (env.LIVEKIT_URL) {
+    try { connectSources.push(new URL(env.LIVEKIT_URL).origin); } catch { /* invalid values are rejected by env config */ }
+  }
+  if (env.NODE_ENV !== 'production') {
+    connectSources.push(
+      'http://localhost:*', 'ws://localhost:*',
+      'http://127.0.0.1:*', 'ws://127.0.0.1:*',
+    );
+  }
   app.use((req, res, next) => {
-    console.log(`[${req.method}] ${req.url}`);
+    res.set({
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'X-XSS-Protection': '1; mode=block',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()',
+      'X-Permitted-Cross-Domain-Policies': 'none',
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: blob:",
+        `connect-src ${connectSources.join(' ')}`,
+        "media-src 'self' blob:",
+        "worker-src 'self' blob:",
+      ].join('; '),
+    });
+    if (env.NODE_ENV === 'production' && req.secure) {
+      res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
+  app.use(express.json({ limit: '32kb', strict: true }));
+
+  app.use((req, res, next) => {
+    console.log(`[${req.method}] ${req.path}`);
+    next();
+  });
+
+  app.use('/api', createRateLimiter({ windowMs: 60_000, max: 300 }));
 
   const officeRoutes = require('./routes/office.routes');
 
@@ -74,7 +148,7 @@ async function startServer() {
   }
 
   const { startProximityService, meshTelemetry } = require('./services/proximity.service');
-  app.get('/api/telemetry/mesh', (req, res) => {
+  app.get('/api/telemetry/mesh', requireAuth, (req, res) => {
     res.json(meshTelemetry.getStats());
   });
 

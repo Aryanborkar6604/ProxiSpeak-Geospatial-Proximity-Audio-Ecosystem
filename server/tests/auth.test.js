@@ -172,20 +172,26 @@ async function run() {
     accounts[0].isActive = false;
     assert.strictEqual(await authService.getAuthenticatedUser(registered.user.userId), null);
 
+    const originalNodeEnv = env.NODE_ENV;
+    env.NODE_ENV = 'production';
     mongoose.connection.readyState = 0;
     await assert.rejects(
       () => authService.registerUser({ name: 'Offline User', email: 'offline@example.com', password: 'a secure passphrase' }),
       (error) => error.statusCode === 503,
     );
+    env.NODE_ENV = originalNodeEnv;
     console.log('MongoDB-backed registration, password verification, and account-state tests passed.');
   } finally {
     User.findOne = originalFindOne;
     User.create = originalCreate;
     mongoose.connection.readyState = originalReadyState;
+    await mongoose.disconnect().catch(() => {});
   }
 }
 
-run().catch((error) => {
+run().then(() => {
+  process.exit(0);
+}).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

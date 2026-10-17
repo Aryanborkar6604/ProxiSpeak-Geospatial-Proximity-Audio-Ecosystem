@@ -6,6 +6,10 @@ const env = {
   MONGODB_URI: process.env.MONGODB_URI || '',
   JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-key',
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
+  CLIENT_URLS: (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'http://localhost:5173')
+    .split(',').map((url) => url.trim()).filter(Boolean),
+  OFFICE_ADMIN_USER_IDS: (process.env.OFFICE_ADMIN_USER_IDS || '')
+    .split(',').map((userId) => userId.trim()).filter(Boolean),
   TURN_URLS: (process.env.TURN_URLS || '').split(',').map((url) => url.trim()).filter(Boolean),
   TURN_SHARED_SECRET: process.env.TURN_SHARED_SECRET || '',
   TURN_CREDENTIAL_TTL_SECONDS: process.env.TURN_CREDENTIAL_TTL_SECONDS === undefined
@@ -21,6 +25,17 @@ const env = {
 
 if (env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || env.JWT_SECRET.length < 32)) {
   throw new Error('Set JWT_SECRET to a random value of at least 32 characters in production.');
+}
+for (const clientUrl of env.CLIENT_URLS) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(clientUrl);
+  } catch {
+    throw new Error('CLIENT_URLS must contain valid http:// or https:// origins.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.origin !== clientUrl.replace(/\/$/, '')) {
+    throw new Error('CLIENT_URLS entries must be origins without a path.');
+  }
 }
 
 if (!process.env.MONGODB_URI) {

@@ -1,11 +1,14 @@
 const express = require('express');
 const env = require('../config/env');
 const { requireAuth } = require('../middlewares/auth.middleware');
+const { createRateLimiter } = require('../middlewares/rate-limit.middleware');
 const { createRtcConfiguration, createLiveKitToken } = require('../services/rtc.service');
 
 const router = express.Router();
+const rtcConfigRateLimit = createRateLimiter({ windowMs: 60_000, max: 60 });
+const liveKitTokenRateLimit = createRateLimiter({ windowMs: 60_000, max: 30 });
 
-router.get('/config', requireAuth, (req, res, next) => {
+router.get('/config', rtcConfigRateLimit, requireAuth, (req, res, next) => {
   try {
     res.set('Cache-Control', 'no-store');
     res.json(createRtcConfiguration({
@@ -20,7 +23,7 @@ router.get('/config', requireAuth, (req, res, next) => {
   }
 });
 
-router.get('/livekit-token', requireAuth, async (req, res, next) => {
+router.get('/livekit-token', liveKitTokenRateLimit, requireAuth, async (req, res, next) => {
   if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
     return res.status(503).json({ error: 'LiveKit SFU is not configured.' });
   }

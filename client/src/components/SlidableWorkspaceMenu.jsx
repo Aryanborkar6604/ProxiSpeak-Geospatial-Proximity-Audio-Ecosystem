@@ -63,7 +63,7 @@ export default function SlidableWorkspaceMenu({
     if (!socket) return;
 
     const handleChatMessage = (msg) => {
-      setChatMessages((prev) => [...prev, msg]);
+      setChatMessages((prev) => [...prev.slice(-199), msg]);
       if (!isOpen || activeTab !== 'chat') {
         setUnreadCount((c) => c + 1);
       }
