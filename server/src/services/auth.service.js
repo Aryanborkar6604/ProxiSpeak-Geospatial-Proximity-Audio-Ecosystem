@@ -15,6 +15,7 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex
 const memoryUsersByEmail = new Map();
 const memoryUsersById = new Map();
 
+
 function isDbConnected() {
   return mongoose.connection.readyState === 1;
 }
@@ -225,3 +226,5 @@ module.exports = {
   loginUser,
   getAuthenticatedUser,
 };
+
+

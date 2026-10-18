@@ -14,6 +14,7 @@ import {
 import OfficeCanvas from './components/OfficeCanvas';
 import SlidableWorkspaceMenu from './components/SlidableWorkspaceMenu';
 import { playSpatialPing, toggleAmbientSound } from './utils/audioFx';
+import deviceCache from './utils/deviceCache';
 
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const colors = ['#e6b29f', '#9aaca0', '#c2a6be', '#d7bd89', '#9daec7', '#cf9b88'];
@@ -89,21 +90,6 @@ function App() {
   const [authChecking, setAuthChecking] = useState(() => Boolean(sessionStorage.getItem('token')));
   const [showPassword, setShowPassword] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : false));
-  const [officeState, setOfficeState] = useState(() => ({
-    officeId: 'main-office',
-    name: 'The Commons',
-    width: 1000,
-    height: 700,
-    obstacles: [],
-    zones: [],
-    users: [],
-  }));
-  const [peers, setPeers] = useState({});
-  const [authError, setAuthError] = useState('');
-  const [loginBusy, setLoginBusy] = useState(false);
-  const [serverBusy, setServerBusy] = useState(false);
-  const serverRequestCount = useRef(0);
-  const serverBusyTimer = useRef(null);
   const [currentOfficeId] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -111,6 +97,26 @@ function App() {
     }
     return 'main-office';
   });
+  const [officeState, setOfficeState] = useState(() => {
+    const cached = deviceCache.loadOffice(currentOfficeId);
+    if (cached) return cached;
+    return {
+      officeId: currentOfficeId,
+      name: currentOfficeId === 'main-office' ? 'The Commons' : `Office ${currentOfficeId}`,
+      width: 1000,
+      height: 700,
+      obstacles: [],
+      zones: [],
+      users: [],
+    };
+  });
+  const [peers, setPeers] = useState({});
+  const [authError, setAuthError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [serverBusy, setServerBusy] = useState(false);
+  const serverRequestCount = useRef(0);
+  const serverBusyTimer = useRef(null);
+
   const runWithServerActivity = useCallback(async (request) => {
     serverRequestCount.current += 1;
     if (serverRequestCount.current === 1) {
@@ -155,7 +161,11 @@ function App() {
   }, [currentOfficeId, publicAppOrigin]);
   const [canvasFps, setCanvasFps] = useState(0);
   const [isAmbienceOn, setIsAmbienceOn] = useState(false);
-  const [localCoords, setLocalCoords] = useState({ x: 175, y: 335 });
+  const [localCoords, setLocalCoords] = useState(() => {
+    const cachedPos = deviceCache.loadPosition(currentOfficeId, userId);
+    return cachedPos ? { x: cachedPos.x, y: cachedPos.y } : { x: 175, y: 335 };
+  });
+
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -256,11 +266,32 @@ function App() {
   useEffect(() => {
     if (!token || authChecking) return undefined;
     const nextSocket = io(SOCKET_BASE_URL, { auth: { token } });
-    nextSocket.on('connect', () => nextSocket.emit('office:join', { officeId: currentOfficeId }));
-    nextSocket.on('office:state', setOfficeState);
-    nextSocket.on('office:updated', (updated) => {
-      setOfficeState((prev) => prev ? { ...prev, ...updated } : prev);
+    nextSocket.on('connect', () => {
+      const cachedPos = deviceCache.loadPosition(currentOfficeId, userId);
+      nextSocket.emit('office:join', {
+        officeId: currentOfficeId,
+        preferredPosition: cachedPos ? { x: cachedPos.x, y: cachedPos.y } : localCoords,
+      });
     });
+    nextSocket.on('office:state', (state) => {
+      setOfficeState(state);
+      deviceCache.saveOffice(currentOfficeId, state);
+      const me = state.users?.find((u) => u.userId === userId);
+      if (me && me.location) {
+        const myX = me.location[0];
+        const myY = me.location[1];
+        setLocalCoords({ x: myX, y: myY });
+        deviceCache.savePosition(currentOfficeId, userId, { x: myX, y: myY });
+      }
+    });
+    nextSocket.on('office:updated', (updated) => {
+      setOfficeState((prev) => {
+        const next = prev ? { ...prev, ...updated } : updated;
+        deviceCache.saveOffice(currentOfficeId, next);
+        return next;
+      });
+    });
+
     nextSocket.on('auth:expired', () => {
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('userId');
@@ -386,8 +417,10 @@ function App() {
 
   const handlePositionChange = useCallback((myPos, curPeers) => {
     setLocalCoords(myPos);
+    deviceCache.savePosition(currentOfficeId, userId, myPos);
     updateSpatialAudio(myPos, curPeers);
-  }, [updateSpatialAudio]);
+  }, [currentOfficeId, userId, updateSpatialAudio]);
+
 
   const closestPeerInfo = useMemo(() => {
     const peerEntries = Object.entries(peers);

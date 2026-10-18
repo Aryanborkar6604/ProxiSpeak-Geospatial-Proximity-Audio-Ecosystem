@@ -76,10 +76,28 @@ function socketHandler(io) {
         socket.join(officeId);
         socket.data.officeId = officeId;
 
-        // Check if user already had a saved position or spawn at default
-        const existingPos = await positionService.getPosition(userId, officeId);
-        const spawnX = existingPos?.location?.[0] ?? (150 + Math.floor(Math.random() * 80));
-        const spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
+        // Honor client device-cached position if valid and in-bounds, or fallback to saved cloud position / default
+        const prefX = payload?.preferredPosition?.x;
+        const prefY = payload?.preferredPosition?.y;
+        let spawnX;
+        let spawnY;
+
+        if (
+          Number.isFinite(prefX) &&
+          Number.isFinite(prefY) &&
+          prefX >= 35 &&
+          prefX <= office.width - 35 &&
+          prefY >= 35 &&
+          prefY <= office.height - 35
+        ) {
+          spawnX = prefX;
+          spawnY = prefY;
+        } else {
+          const existingPos = await positionService.getPosition(userId, officeId);
+          spawnX = existingPos?.location?.[0] ?? (150 + Math.floor(Math.random() * 80));
+          spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
+        }
+
         
         // Execute in parallel for instant response
         const [onlinePositions, nearbyPositions] = await Promise.all([
@@ -130,9 +148,9 @@ function socketHandler(io) {
       }
     });
 
-    socket.on('player:move', async (payload) => {
+    socket.on('player:move', (payload) => {
       try {
-        if (!allowSocketEvent(socket, 'player:move', { windowMs: 1000, max: 20 })) return;
+        if (!allowSocketEvent(socket, 'player:move', { windowMs: 1000, max: 60 })) return;
         const x = payload?.x;
         const y = payload?.y;
         const officeId = socket.data.officeId;
@@ -141,10 +159,13 @@ function socketHandler(io) {
         const office = officeService.getCachedOffice(officeId);
         if (!office || x < 0 || y < 0 || x > office.width || y > office.height) return;
 
-        await positionService.updatePosition(userId, officeId, x, y);
+        // Instant zero-delay broadcast to other clients in room
+        socket.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x, y });
 
-        // Broadcast to room
-        io.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x, y });
+        // Update position state asynchronously in background without blocking network tick
+        positionService.updatePosition(userId, officeId, x, y).catch((err) => {
+          console.warn('[position] Background update warning:', err.message);
+        });
       } catch (err) {
         console.error('player:move error', err);
       }

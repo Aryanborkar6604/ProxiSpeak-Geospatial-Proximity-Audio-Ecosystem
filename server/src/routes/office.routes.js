@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const officeService = require('../services/office.service');
 const env = require('../config/env');
@@ -53,7 +54,15 @@ router.get('/:officeId', readRateLimit, async (req, res) => {
     if (!office) {
       return res.status(404).json({ error: 'Office not found' });
     }
+    const etag = `W/"${crypto.createHash('md5').update(JSON.stringify(office)).digest('hex')}"`;
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
+    res.setHeader('ETag', etag);
+
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
     res.json(office);
+
   } catch (err) {
     console.error('Error fetching office:', err);
     res.status(500).json({ error: 'Internal server error' });

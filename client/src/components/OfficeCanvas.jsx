@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import deviceCache from '../utils/deviceCache';
 
-const THROTTLE_MS = 1000 / 15;
+const THROTTLE_MS = 1000 / 30; // 30Hz high-responsiveness move rate (down from 15Hz)
 const AVATAR_COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899'];
 
 function labelFor(index) { return `Teammate ${index + 1}`; }
@@ -22,8 +23,15 @@ export default function OfficeCanvas({
 }) {
   const canvasRef = useRef(null);
   const peersRef = useRef({});
-  const localPos = useRef({ x: 175, y: 335 });
+  const interpolatedPeers = useRef({}); // 60 FPS smooth linear interpolation coordinates
+  const localPos = useRef(
+    deviceCache.loadPosition(officeState?.officeId, localUserId) || { x: 175, y: 335 }
+  );
+  const localPosInitialized = useRef(Boolean(deviceCache.loadPosition(officeState?.officeId, localUserId)));
   const lastEmitTime = useRef(0);
+  const trailingMoveTimeout = useRef(null);
+  const syncTimeoutRef = useRef(null);
+
   const [canvasSize, setCanvasSize] = useState({ width: officeState.width, height: officeState.height });
   
   // Dynamic sound wave ripples: [ { x, y, radius, maxRadius, alpha, color } ]
@@ -40,6 +48,16 @@ export default function OfficeCanvas({
   onPositionChangeRef.current = onPositionChange;
   onFrameRateChangeRef.current = onFrameRateChange;
 
+  // Throttled React State Synchronizer: prevents 60 FPS re-render storms on the parent DOM tree
+  const scheduleSync = useCallback(() => {
+    if (syncTimeoutRef.current) return;
+    syncTimeoutRef.current = setTimeout(() => {
+      syncTimeoutRef.current = null;
+      onPeersChangeRef.current?.({ ...peersRef.current });
+      onPositionChangeRef.current?.(localPos.current, peersRef.current);
+    }, 100);
+  }, []);
+
   const updatePeers = useCallback((next) => {
     peersRef.current = next;
     onPeersChangeRef.current?.(next);
@@ -54,12 +72,17 @@ export default function OfficeCanvas({
 
     const handlePlayerMoved = ({ userId, x, y, name }) => {
       if (userId === localUserId) return;
-      updatePeers({ ...peersRef.current, [userId]: { x, y, name } });
+      peersRef.current[userId] = { x, y, name };
+      if (!interpolatedPeers.current[userId]) {
+        interpolatedPeers.current[userId] = { x, y };
+      }
+      scheduleSync();
     };
     
     const handlePlayerLeft = ({ userId }) => {
       const next = { ...peersRef.current };
       delete next[userId];
+      delete interpolatedPeers.current[userId];
       updatePeers(next);
     };
 
@@ -68,8 +91,10 @@ export default function OfficeCanvas({
     return () => {
       socket.off('player:moved', handlePlayerMoved);
       socket.off('player:left', handlePlayerLeft);
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+      if (trailingMoveTimeout.current) clearTimeout(trailingMoveTimeout.current);
     };
-  }, [socket, localUserId, officeState?.officeId, updatePeers]);
+  }, [socket, localUserId, officeState?.officeId, updatePeers, scheduleSync]);
 
   useEffect(() => {
     if (!officeState?.users) return;
@@ -93,10 +118,18 @@ export default function OfficeCanvas({
       return !cur || cur.x !== nxt.x || cur.y !== nxt.y || cur.name !== nxt.name;
     });
 
+    const me = liveUsers.find((user) => user.userId === localUserId);
+    if (me && me.location && !localPosInitialized.current) {
+      localPos.current = { x: me.location[0], y: me.location[1] };
+      localPosInitialized.current = true;
+      scheduleSync();
+    }
+
     if (hasChanges) {
       updatePeers(nextPeers);
     }
-  }, [officeState?.users, localUserId, updatePeers]);
+  }, [officeState?.users, localUserId, updatePeers, scheduleSync]);
+
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -293,9 +326,19 @@ export default function OfficeCanvas({
       }
       ctx.restore();
 
-      // 8. Dynamic Proximity Beams & Spatial HUD Tethers
+      // 8. Dynamic Proximity Beams & Spatial HUD Tethers (with 60 FPS LERP)
       Object.entries(peersRef.current).forEach(([peerId, peer]) => {
-        const dist = Math.hypot(peer.x - localX, peer.y - localY);
+        let interp = interpolatedPeers.current[peerId];
+        if (!interp) {
+          interp = { x: peer.x, y: peer.y };
+          interpolatedPeers.current[peerId] = interp;
+        } else {
+          // Smooth glide towards latest network coordinate
+          interp.x += (peer.x - interp.x) * 0.35;
+          interp.y += (peer.y - interp.y) * 0.35;
+        }
+
+        const dist = Math.hypot(interp.x - localX, interp.y - localY);
         const inRange = dist <= (officeState.hearingRadiusPx || 105);
         const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
         const isMuffled = peerAtt < 0.9;
@@ -306,7 +349,7 @@ export default function OfficeCanvas({
           const finalVolumePct = Math.round(baseVolume * peerAtt * 100);
 
           // Animated neon tether
-          const tetherGrad = ctx.createLinearGradient(localX, localY, peer.x, peer.y);
+          const tetherGrad = ctx.createLinearGradient(localX, localY, interp.x, interp.y);
           if (dark) {
             tetherGrad.addColorStop(0, 'rgba(0, 245, 155, 0.7)');
             tetherGrad.addColorStop(1, isMuffled ? 'rgba(245, 158, 11, 0.6)' : 'rgba(0, 210, 255, 0.7)');
@@ -321,13 +364,13 @@ export default function OfficeCanvas({
           ctx.lineDashOffset = -Date.now() / 60;
           ctx.beginPath();
           ctx.moveTo(localX, localY);
-          ctx.lineTo(peer.x, peer.y);
+          ctx.lineTo(interp.x, interp.y);
           ctx.stroke();
           ctx.setLineDash([]);
 
           // Midpoint Spatial Audio Telemetry Badge
-          const midX = (localX + peer.x) / 2;
-          const midY = (localY + peer.y) / 2;
+          const midX = (localX + interp.x) / 2;
+          const midY = (localY + interp.y) / 2;
           const badgeText = isMuffled ? `▤ WALL ${finalVolumePct}%` : `🔊 ${finalVolumePct}% • ${Math.round(dist)}px`;
           
           ctx.font = '700 8px "JetBrains Mono", monospace, sans-serif';
@@ -382,7 +425,7 @@ export default function OfficeCanvas({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 10. Draw Avatars (Local & Remote)
+      // 10. Draw Avatars (Local & Remote with 60 FPS LERP)
       drawAvatar(ctx, localX, localY, '#00F59B', 'YOU', true, curAudio.isSpeaking, false, curAudio.isMuted, 1.0, dark);
 
       const getAvatarColor = (id) => {
@@ -392,12 +435,13 @@ export default function OfficeCanvas({
       };
 
       Object.entries(peersRef.current).forEach(([peerId, point], index) => {
+        const interp = interpolatedPeers.current[peerId] || point;
         const isPeerSpeaking = Boolean(curAudio.speakingPeers[peerId]);
         const isPeerNearby = Boolean(curAudio.nearbyPeers[peerId]);
         const isPeerMuted = Boolean(curAudio.mutedPeers[peerId]);
         const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
         const avatarLabel = point.name?.trim().split(/\s+/)[0] || labelFor(index);
-        drawAvatar(ctx, point.x, point.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
+        drawAvatar(ctx, interp.x, interp.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
       });
 
       ctx.restore();
@@ -418,23 +462,31 @@ export default function OfficeCanvas({
       const nextX = Math.max(35, Math.min(localPos.current.x + direction[0] * pace, officeState.width - 35));
       const nextY = Math.max(35, Math.min(localPos.current.y + direction[1] * pace, officeState.height - 35));
       localPos.current = { x: nextX, y: nextY };
-      onPositionChange?.(localPos.current, peersRef.current);
+      scheduleSync();
+
       const now = Date.now();
+      if (trailingMoveTimeout.current) clearTimeout(trailingMoveTimeout.current);
       if (socket && now - lastEmitTime.current >= THROTTLE_MS) {
         socket.emit('player:move', { x: nextX, y: nextY });
         lastEmitTime.current = now;
+      } else if (socket) {
+        // Trailing emit guarantees the final stopping position is always broadcast
+        trailingMoveTimeout.current = setTimeout(() => {
+          socket.emit('player:move', { x: localPos.current.x, y: localPos.current.y });
+          lastEmitTime.current = Date.now();
+        }, THROTTLE_MS);
       }
     };
     window.addEventListener('keydown', move);
     return () => window.removeEventListener('keydown', move);
-  }, [socket, officeState, onPositionChange]);
+  }, [socket, officeState, scheduleSync]);
 
   const handleCanvasClick = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width * officeState.width;
     const y = (event.clientY - rect.top) / rect.height * officeState.height;
     localPos.current = { x, y };
-    onPositionChange?.(localPos.current, peersRef.current);
+    scheduleSync();
     if (socket) socket.emit('player:move', { x, y });
     lastEmitTime.current = Date.now();
   };
