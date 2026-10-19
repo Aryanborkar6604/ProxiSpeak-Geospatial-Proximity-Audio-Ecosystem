@@ -27,10 +27,11 @@ function makeDefaultOffice(officeId) {
     name: officeId === 'main-office' ? 'The Commons' : `Office ${officeId}`,
     width: 1000,
     height: 700,
-    hearingRadiusPx: 105,
+    hearingRadiusPx: 100,
     obstacles: DEFAULT_OBSTACLES,
     zones: DEFAULT_ZONES,
   };
+
 }
 
 function cacheOffice(officeId, office) {

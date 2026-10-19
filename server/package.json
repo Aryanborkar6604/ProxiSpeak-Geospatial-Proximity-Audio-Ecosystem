@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node tests/obstacle.test.js && node tests/auth.test.js && node tests/rtc.test.js && node tests/position-geo.test.js && node tests/spatial-index.test.js",
-    "dev": "nodemon src/index.js"
+    "dev": "node --watch src/index.js"
   },
   "keywords": [],
   "author": "",
@@ -25,7 +25,6 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14",
     "socket.io-client": "^4.8.4"
   }
 }

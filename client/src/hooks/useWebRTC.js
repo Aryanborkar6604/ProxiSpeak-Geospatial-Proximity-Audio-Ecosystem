@@ -10,7 +10,7 @@ const DEFAULT_RTC_CONFIG = {
 };
 const runDirectly = (request) => request();
 
-export default function useWebRTC(socket, localUserId, token, officeId, runWithServerActivity = runDirectly) {
+export default function useWebRTC(socket, localUserId, token, officeId, runWithServerActivity = runDirectly, peers = {}) {
   const [rtcConfig, setRtcConfig] = useState(DEFAULT_RTC_CONFIG);
   const [rtcMode, setRtcMode] = useState('peer');
   const [loadedRtcToken, setLoadedRtcToken] = useState(null);
@@ -33,7 +33,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
   const pendingOffers = useRef({});
   const audioContextRef = useRef(null);
   const spatialNodesRef = useRef({}); // { [peerId]: { source, gainNode, pannerNode } }
-  const positionsRef = useRef({ local: { x: 175, y: 335 }, peers: {} });
+  const positionsRef = useRef({ local: { x: 175, y: 335 }, peers: peers || {} });
   const peerAttenuationsRef = useRef({});
   const nearbyPeersRef = useRef(nearbyPeers);
   const localAnalyserRef = useRef(null);
@@ -43,6 +43,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
   useEffect(() => {
     nearbyPeersRef.current = nearbyPeers;
   }, [nearbyPeers]);
+
 
   useEffect(() => {
     if (!token) {
@@ -96,6 +97,24 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     }
     return audioContextRef.current;
   }, []);
+
+  // Unlock AudioContext on any user interaction (click, keypress, touch) to comply with browser autoplay policies
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    };
+    window.addEventListener('click', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+    window.addEventListener('touchstart', unlockAudio);
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
+
 
   // Check support on mount
   useEffect(() => {
@@ -241,61 +260,88 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     }
   };
 
-  // Dynamic distance & obstacle attenuation spatial audio updater
-  const updateSpatialAudio = useCallback((currentLocalPos, currentPeers, radius = 105) => {
+  // Sync external peers whenever peer coordinates change
+  useEffect(() => {
+    if (peers) {
+      positionsRef.current.peers = peers;
+      updateSpatialAudio(positionsRef.current.local, peers);
+    }
+  }, [peers]);
+
+  // Dynamic distance & obstacle attenuation spatial audio updater (100px range)
+  const updateSpatialAudio = useCallback((currentLocalPos, currentPeers, radius = 100) => {
     if (currentLocalPos) positionsRef.current.local = currentLocalPos;
     if (currentPeers) positionsRef.current.peers = currentPeers;
 
     const ctx = getAudioContext();
-    if (!ctx) return;
-
     const myPos = positionsRef.current.local;
     const allPeers = positionsRef.current.peers;
 
     Object.entries(spatialNodesRef.current).forEach(([peerId, nodes]) => {
       const peer = allPeers[peerId];
-      if (!peer || !myPos || !nodes.gainNode) return;
+      let distanceGain = 0.8; // Default audible gain if peer position is awaiting first sync
+      let targetPan = 0;
 
-      const dx = peer.x - myPos.x;
-      const dy = peer.y - myPos.y;
-      const distance = Math.hypot(dx, dy);
+      if (peer && myPos) {
+        const dx = peer.x - myPos.x;
+        const dy = peer.y - myPos.y;
+        const distance = Math.hypot(dx, dy);
 
-      // Distance attenuation:
-      // Linear volume drop-off
-      const distanceGain = Math.max(0, Math.min(1, 1 - (distance / radius)));
-      // Factor in obstacle sound-blocking attenuation factor (0.05 to 1.0)
+        if (distance <= radius) {
+          const norm = distance / radius; // 0 (point-blank) to 1 (at 100px limit)
+          // Smooth acoustic curve: crystal clear at close range, natural rolloff to 18% at boundary
+          distanceGain = Math.max(0.18, 1 - Math.pow(norm, 1.3));
+        } else {
+          distanceGain = 0;
+        }
+        targetPan = Math.max(-1, Math.min(1, dx / radius));
+      }
+
       const obstacleAttenuation = peerAttenuationsRef.current[peerId] ?? 1.0;
       const targetGain = distanceGain * obstacleAttenuation;
-      
-      // Stereo pan:
-      // Left is -1, Right is +1, Center is 0
-      const targetPan = Math.max(-1, Math.min(1, dx / radius));
 
-      const now = ctx.currentTime;
-      nodes.gainNode.gain.setTargetAtTime(targetGain, now, 0.05);
-      if (nodes.pannerNode) {
-        nodes.pannerNode.pan.setTargetAtTime(targetPan, now, 0.05);
+      // Primary WebAudio spatial output
+      if (ctx && nodes.gainNode) {
+        const now = ctx.currentTime;
+        nodes.gainNode.gain.setTargetAtTime(targetGain, now, 0.05);
+        if (nodes.pannerNode) {
+          nodes.pannerNode.pan.setTargetAtTime(targetPan, now, 0.05);
+        }
+      }
+
+      // Secondary direct Audio element fallback for browsers blocking AudioContext
+      const audioEl = audioElements.current[peerId];
+      if (audioEl) {
+        if (!ctx || ctx.state === 'suspended') {
+          audioEl.muted = false;
+          audioEl.volume = Math.max(0, Math.min(1, targetGain));
+        } else {
+          // WebAudio is active, mute direct element to prevent echo/double playback
+          audioEl.muted = true;
+        }
       }
     });
   }, [getAudioContext]);
 
   const attachRemoteAudio = useCallback((peerId, stream) => {
-    const playThroughElement = () => {
-      let audioEl = audioElements.current[peerId];
-      if (!audioEl) {
-        audioEl = new Audio();
-        audioEl.autoplay = true;
-        audioEl.playsInline = true;
-        audioElements.current[peerId] = audioEl;
-      }
-      audioEl.srcObject = stream;
-      audioEl.play().catch((playError) => {
-        console.warn('[WebRTC] Remote audio playback was blocked:', playError);
-      });
-    };
+    // 1. Maintain an HTMLAudioElement playing the stream.
+    // In Chromium, if an audio element is not playing the remote stream,
+    // WebRTC packet decoding halts and WebAudio createMediaStreamSource goes silent.
+    let audioEl = audioElements.current[peerId];
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      audioElements.current[peerId] = audioEl;
+    }
+    audioEl.srcObject = stream;
+    audioEl.play().catch((playError) => {
+      console.warn('[WebRTC] Remote audio play notice:', playError.message);
+    });
+
     const ctx = getAudioContext();
     if (!ctx) {
-      playThroughElement();
+      audioEl.muted = false;
       return;
     }
 
@@ -307,17 +353,13 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
         existing.pannerNode?.disconnect();
       } catch (_) {}
     }
-    const fallbackAudio = audioElements.current[peerId];
-    if (fallbackAudio) {
-      fallbackAudio.pause();
-      fallbackAudio.srcObject = null;
-      delete audioElements.current[peerId];
-    }
 
     try {
       const source = ctx.createMediaStreamSource(stream);
       const gainNode = ctx.createGain();
+      gainNode.gain.value = 1.0;
       const pannerNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
       if (pannerNode) {
         source.connect(gainNode);
         gainNode.connect(pannerNode);
@@ -326,13 +368,22 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
         source.connect(gainNode);
         gainNode.connect(ctx.destination);
       }
+
       spatialNodesRef.current[peerId] = { source, gainNode, pannerNode };
+
+      if (ctx.state === 'running') {
+        audioEl.muted = true;
+      } else {
+        audioEl.muted = false;
+      }
+
       updateSpatialAudio(positionsRef.current.local, positionsRef.current.peers);
     } catch (error) {
-      console.error('[WebAudio] Could not spatialize remote audio:', error);
-      playThroughElement();
+      console.warn('[WebAudio] Fallback to direct HTML5 audio output:', error.message);
+      audioEl.muted = false;
     }
   }, [getAudioContext, updateSpatialAudio]);
+
 
   const removeRemoteAudio = useCallback((peerId) => {
     const nodes = spatialNodesRef.current[peerId];
@@ -592,12 +643,21 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
       if (peerConnections.current[peerId]) {
         return peerConnections.current[peerId];
       }
-      if (!localStream || !rtcConfigReady) return null;
+      if (!rtcConfigReady) return null;
 
       const pc = new RTCPeerConnection(rtcConfig);
 
-      // Attach our audio tracks
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+      // Attach our audio tracks if we have an active microphone
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        localStream.getAudioTracks().forEach((track) => pc.addTrack(track, localStream));
+      } else {
+        // RecvOnly for listening avatar without microphone enabled
+        try {
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+        } catch (e) {
+          console.warn('[WebRTC] addTransceiver fallback:', e);
+        }
+      }
 
       // Emit local ICE candidates
       pc.onicecandidate = (event) => {
@@ -630,7 +690,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
       setNearbyPeers((prev) => (prev[peerId] ? prev : { ...prev, [peerId]: true }));
 
       // Deterministic initiator logic (lexicographical comparison)
-      if (localStream && rtcConfigReady && !peerConnections.current[peerId] && String(localUserId) > String(peerId)) {
+      if (rtcConfigReady && !peerConnections.current[peerId] && String(localUserId) > String(peerId)) {
         try {
           const pc = createPeerConnection(peerId);
           if (!pc) return;
@@ -673,7 +733,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
     };
 
     const handleOffer = async ({ fromUserId, sdp }) => {
-      if (!localStream || !rtcConfigReady) {
+      if (!rtcConfigReady) {
         pendingOffers.current[fromUserId] = sdp;
         return;
       }
@@ -695,6 +755,7 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
         console.error(`[WebRTC] Error handling offer from ${fromUserId}:`, err);
       }
     };
+
 
     const handleAnswer = async ({ fromUserId, sdp }) => {
       try {
@@ -760,6 +821,30 @@ export default function useWebRTC(socket, localUserId, token, officeId, runWithS
       socket.off('webrtc:ice-candidate', handleIceCandidate);
     };
   }, [socket, localStream, localUserId, token, rtcConfig, rtcConfigReady, rtcMode, attachRemoteAudio, removeRemoteAudio, getAudioContext, updateSpatialAudio]);
+
+  // When localStream becomes active (user clicked "Enable microphone"), seamlessly attach/replace audio track on all active peer connections
+  useEffect(() => {
+    if (!localStream) return;
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    Object.entries(peerConnections.current).forEach(([peerId, pc]) => {
+      try {
+        const senders = pc.getSenders();
+        const audioSender = senders.find((s) => s.track && s.track.kind === 'audio') || senders.find((s) => !s.track);
+        if (audioSender) {
+          audioSender.replaceTrack(audioTrack).catch((err) => {
+            console.warn(`[WebRTC] replaceTrack warning for ${peerId}:`, err.message);
+          });
+        } else {
+          pc.addTrack(audioTrack, localStream);
+        }
+      } catch (err) {
+        console.warn(`[WebRTC] Could not attach track to existing connection ${peerId}:`, err.message);
+      }
+    });
+  }, [localStream]);
+
 
   return {
     requestMic,

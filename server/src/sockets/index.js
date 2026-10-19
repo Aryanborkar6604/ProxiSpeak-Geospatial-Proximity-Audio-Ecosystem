@@ -37,15 +37,33 @@ function isValidIceCandidate(value) {
   );
 }
 
+function arePeersSignalingEligible(userId, targetUserId, officeId) {
+  if (!userId || !targetUserId || userId === targetUserId) return false;
+  if (arePeersInRange(userId, targetUserId)) return true;
+
+  // Real-time position check with 25% signaling hysteresis tolerance to avoid dropping ICE/answers
+  const activePositions = positionService.getActivePositionsForOffice(officeId);
+  const p1 = activePositions.find((p) => p.userId === userId);
+  const p2 = activePositions.find((p) => p.userId === targetUserId);
+  if (p1?.location && p2?.location) {
+    const dist = Math.hypot(p1.location[0] - p2.location[0], p1.location[1] - p2.location[1]);
+    const office = officeService.getCachedOffice(officeId);
+    const radius = office?.hearingRadiusPx || 100;
+    return dist <= radius * 1.25;
+  }
+  return false;
+}
+
 async function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
   const officeId = socket.data.officeId;
-  if (!officeId || !arePeersInRange(socket.data.userId, targetUserId)) return;
+  if (!officeId || !arePeersSignalingEligible(socket.data.userId, targetUserId, officeId)) return;
 
   const userSockets = await io.in(`user_${targetUserId}`).fetchSockets();
   userSockets
     .filter((targetSocket) => targetSocket.data.officeId === officeId)
     .forEach((targetSocket) => targetSocket.emit(eventName, payload));
 }
+
 
 function socketHandler(io) {
   io.use(socketAuthMiddleware);

@@ -148,7 +148,9 @@ function App() {
     speakingPeers,
     mutedPeers,
     peerAttenuations,
-  } = useWebRTC(socket, userId, token, currentOfficeId, runWithServerActivity);
+  } = useWebRTC(socket, userId, token, currentOfficeId, runWithServerActivity, peers);
+
+
   const [search, setSearch] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -418,15 +420,16 @@ function App() {
   const handlePositionChange = useCallback((myPos, curPeers) => {
     setLocalCoords(myPos);
     deviceCache.savePosition(currentOfficeId, userId, myPos);
-    updateSpatialAudio(myPos, curPeers);
-  }, [currentOfficeId, userId, updateSpatialAudio]);
-
+    updateSpatialAudio(myPos, curPeers, officeState?.hearingRadiusPx || 100);
+  }, [currentOfficeId, userId, updateSpatialAudio, officeState?.hearingRadiusPx]);
 
   const closestPeerInfo = useMemo(() => {
     const peerEntries = Object.entries(peers);
     if (peerEntries.length === 0) return null;
     let minPeer = null;
     let minDist = Infinity;
+    const radius = officeState?.hearingRadiusPx || 100;
+
     peerEntries.forEach(([id, pos]) => {
       if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
         const dx = pos.x - localCoords.x;
@@ -435,7 +438,9 @@ function App() {
         if (d < minDist) {
           minDist = d;
           const att = peerAttenuations[id] ?? 1.0;
-          const inRange = d <= (officeState?.hearingRadiusPx || 105);
+          const inRange = d <= radius;
+          const norm = d / radius;
+          const baseVolume = inRange ? Math.max(0.18, 1 - Math.pow(norm, 1.3)) : 0;
           minPeer = {
             id,
             name: pos.name || `Teammate`,
@@ -444,13 +449,14 @@ function App() {
             dy,
             att,
             inRange,
-            volumePct: Math.round(Math.max(0, 1 - d / (officeState?.hearingRadiusPx || 105)) * att * 100),
+            volumePct: Math.round(baseVolume * att * 100),
           };
         }
       }
     });
     return minPeer;
   }, [peers, localCoords, peerAttenuations, officeState?.hearingRadiusPx]);
+
 
   const handleTestPing = () => {
     playSpatialPing();

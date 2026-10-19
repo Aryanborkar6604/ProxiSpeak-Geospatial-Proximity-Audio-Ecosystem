@@ -338,15 +338,18 @@ export default function OfficeCanvas({
           interp.y += (peer.y - interp.y) * 0.35;
         }
 
+        const hearingRadius = officeState?.hearingRadiusPx || 100;
         const dist = Math.hypot(interp.x - localX, interp.y - localY);
-        const inRange = dist <= (officeState.hearingRadiusPx || 105);
+        const inRange = dist <= hearingRadius;
         const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
         const isMuffled = peerAtt < 0.9;
 
         if (inRange) {
           ctx.save();
-          const baseVolume = Math.max(0, 1 - dist / 105);
+          const norm = dist / hearingRadius;
+          const baseVolume = Math.max(0.18, 1 - Math.pow(norm, 1.3));
           const finalVolumePct = Math.round(baseVolume * peerAtt * 100);
+
 
           // Animated neon tether
           const tetherGrad = ctx.createLinearGradient(localX, localY, interp.x, interp.y);
@@ -399,7 +402,9 @@ export default function OfficeCanvas({
       });
 
       // 9. Local User Hearing Horizon Aura
-      const pulseRadius = 105 + Math.sin(Date.now() / 500) * 2.5;
+      const hearingRadius = officeState?.hearingRadiusPx || 100;
+      const pulseRadius = hearingRadius + Math.sin(Date.now() / 500) * 2.5;
+
       const radarGrad = ctx.createRadialGradient(localX, localY, 20, localX, localY, pulseRadius);
       if (dark) {
         radarGrad.addColorStop(0, 'rgba(0, 245, 155, 0.12)');
@@ -462,6 +467,7 @@ export default function OfficeCanvas({
       const nextX = Math.max(35, Math.min(localPos.current.x + direction[0] * pace, officeState.width - 35));
       const nextY = Math.max(35, Math.min(localPos.current.y + direction[1] * pace, officeState.height - 35));
       localPos.current = { x: nextX, y: nextY };
+      deviceCache.savePosition(officeState?.officeId, localUserId, localPos.current);
       scheduleSync();
 
       const now = Date.now();
@@ -479,17 +485,19 @@ export default function OfficeCanvas({
     };
     window.addEventListener('keydown', move);
     return () => window.removeEventListener('keydown', move);
-  }, [socket, officeState, scheduleSync]);
+  }, [socket, officeState, scheduleSync, localUserId]);
 
   const handleCanvasClick = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width * officeState.width;
     const y = (event.clientY - rect.top) / rect.height * officeState.height;
     localPos.current = { x, y };
+    deviceCache.savePosition(officeState?.officeId, localUserId, localPos.current);
     scheduleSync();
     if (socket) socket.emit('player:move', { x, y });
     lastEmitTime.current = Date.now();
   };
+
 
   return (
     <canvas
