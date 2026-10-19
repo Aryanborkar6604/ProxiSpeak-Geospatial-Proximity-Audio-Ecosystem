@@ -1,6 +1,6 @@
 # ProxiSpeak
 
-A single shared virtual office for the Infotact team. The React app draws an overhead office on an HTML Canvas, and Socket.io shares avatar movement in real time. Signed-in users within **25 pixels** negotiate WebRTC audio; the Web Audio API attenuates and pans the received audio according to avatar position.
+A single shared virtual office for the Infotact team. The React app draws an overhead office on an HTML Canvas, and Socket.io shares avatar movement in real time. Signed-in users within **65 pixels** negotiate WebRTC audio; the Web Audio API attenuates and pans the received audio according to avatar position.
 
 ## Run locally
 
@@ -8,7 +8,7 @@ A single shared virtual office for the Infotact team. The React app draws an ove
 2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts, sessions, and presence are held in memory and are lost when the server restarts.
 3. Run `npm install`, then `npm run dev`.
 4. Open `http://localhost:5173` in two browser profiles or windows, create/sign in to a different account in each, and allow microphone access.
-5. Click **Enable sound** in both browsers, click **Say hello** to enable a microphone, and move the avatars within 25 pixels of each other.
+5. Click **Enable sound** in both browsers, click **Say hello** to enable a microphone, and move the avatars within 65 pixels of each other.
 
 Microphone access requires `localhost` or HTTPS. The sample map occupants are illustrative only and are not connected audio peers. The default STUN server is suitable for development, but restrictive networks may require TURN; set `VITE_ICE_SERVERS` in `.env` to a JSON array supplied by your ICE/TURN provider. Production TURN credentials should be short-lived. For a remotely hosted app, use HTTPS/WSS and restrict the allowed client origin.
 

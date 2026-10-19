@@ -1,0 +1,7 @@
+6:55:42 pm [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+6:55:43 pm [vite] http proxy error: /socket.io/?EIO=4&transport=polling&t=aeu1iobj
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1430:18)
+    at afterConnectMultiple (node:net:2099:7)

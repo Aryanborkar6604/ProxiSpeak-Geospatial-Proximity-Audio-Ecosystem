@@ -16,7 +16,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true } });
 const PORT = process.env.PORT || 3001;
 const OFFICE_ID = process.env.OFFICE_ID || 'infotact-hq';
-const EARSHOT = 25;
+const EARSHOT = 65;
 // Project office pixels to a small, valid GeoJSON patch where 1 pixel ≈ 1 meter.
 const METERS_PER_DEGREE = 111_320;
 const users = new Map();
@@ -70,7 +70,7 @@ async function publishPresence() {
     } catch (err) { console.error('Presence query failed:', err.message); }
   }
 }
-app.get('/api/health', (_, res) => res.json({ ok: true, officeId: OFFICE_ID, connected: users.size, persistence: people ? 'mongodb' : 'memory' }));
+app.get('/api/health', (_, res) => res.json({ ok: true, officeId: OFFICE_ID, connected: users.size, earshotPixels: EARSHOT, persistence: people ? 'mongodb' : 'memory' }));
 app.post('/api/auth/register', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 32) : '';
@@ -165,14 +165,18 @@ io.on('connection', socket => {
 });
 
 const mongoUri = process.env.MONGODB_URI;
-if (mongoUri) {
+async function connectMongo() {
+  if (!mongoUri) return;
+  const client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5000 });
   try {
-    const client = new MongoClient(mongoUri); await client.connect();
+    await client.connect();
     const db = client.db(process.env.MONGODB_DB || 'proxispeak');
-    people = db.collection('people'); accounts = db.collection('accounts');
-    await people.createIndex({ location: '2dsphere' }); await people.createIndex({ officeId: 1 });
-    await accounts.createIndex({ email: 1 }, { unique: true });
+    const nextPeople = db.collection('people'), nextAccounts = db.collection('accounts');
+    await nextPeople.createIndex({ location: '2dsphere' }); await nextPeople.createIndex({ officeId: 1 });
+    await nextAccounts.createIndex({ email: 1 }, { unique: true });
+    people = nextPeople; accounts = nextAccounts;
     console.log('MongoDB connected; geospatial indexes ready');
-  } catch (err) { console.warn(`MongoDB unavailable; using live in-memory presence (${err.message})`); }
+  } catch (err) { await client.close().catch(() => {}); console.warn(`MongoDB unavailable; using live in-memory presence (${err.message})`); }
 }
 httpServer.listen(PORT, () => console.log(`ProxiSpeak server listening on http://localhost:${PORT} — ${OFFICE_ID}`));
+connectMongo();
