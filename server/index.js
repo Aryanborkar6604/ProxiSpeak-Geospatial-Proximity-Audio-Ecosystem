@@ -11,7 +11,7 @@ const scrypt = promisify(scryptCallback);
 
 const app = express();
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '512kb' }));
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true } });
 const PORT = process.env.PORT || 3001;
@@ -30,12 +30,14 @@ function parseCookies(header = '') {
     const i = part.indexOf('='); return [part.slice(0, i), decodeURIComponent(part.slice(i + 1))];
   }));
 }
-function publicAccount(account) { return { id: String(account._id ?? account.id), email: account.email, name: account.displayName ?? account.name }; }
+function publicAccount(account) { const id = String(account._id ?? account.id); return { id, email: account.email, name: account.displayName ?? account.name, avatarUrl: account.avatarDataUrl ? `/api/avatars/${id}?v=${account.avatarUpdatedAt ?? 0}` : null }; }
+function privateProfile(account) { return { phoneNumber: account.phoneNumber ?? '', dateOfBirth: account.dateOfBirth ?? '' }; }
 function setSessionCookie(res, token) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader('Set-Cookie', `proxi_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${secure}`);
 }
 async function findAccount(email) { return accounts ? accounts.findOne({ email }) : demoAccounts.get(email); }
+async function findAccountById(id) { return accounts ? accounts.findOne({ _id: id }) : [...demoAccounts.values()].find(account => String(account._id ?? account.id) === id); }
 async function saveAccount(account) {
   if (accounts) await accounts.insertOne(account); else demoAccounts.set(account.email, account);
 }
@@ -71,6 +73,7 @@ async function publishPresence() {
   }
 }
 app.get('/api/health', (_, res) => res.json({ ok: true, officeId: OFFICE_ID, connected: users.size, earshotPixels: EARSHOT, persistence: people ? 'mongodb' : 'memory' }));
+app.use('/api/auth', (_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.post('/api/auth/register', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 32) : '';
@@ -82,11 +85,11 @@ app.post('/api/auth/register', async (req, res) => {
     if (await findAccount(email)) return res.status(409).json({ error: 'An account with that email already exists. Try logging in.' });
     const passwordSalt = randomBytes(16).toString('hex');
     const passwordHash = (await scrypt(password, Buffer.from(passwordSalt, 'hex'), 64)).toString('hex');
-    const account = { _id: randomUUID(), email, displayName: name, passwordSalt, passwordHash, createdAt: new Date() };
+    const account = { _id: randomUUID(), email, displayName: name, avatarDataUrl: null, avatarUpdatedAt: 0, phoneNumber: '', dateOfBirth: '', passwordSalt, passwordHash, createdAt: new Date() };
     await saveAccount(account);
     const token = randomBytes(32).toString('hex'); const profile = publicAccount(account);
     sessions.set(token, profile); setSessionCookie(res, token);
-    res.status(201).json({ user: profile });
+    res.status(201).json({ user: profile, profile: privateProfile(account) });
   } catch (err) {
     if (err.code === 11000) return res.status(409).json({ error: 'An account with that email already exists. Try logging in.' });
     console.error('Account registration failed:', err.message);
@@ -102,17 +105,66 @@ app.post('/api/auth/login', async (req, res) => {
     if (!account || !(await passwordMatches(password, account))) return res.status(401).json({ error: 'That email and password do not match.' });
     const token = randomBytes(32).toString('hex'); const profile = publicAccount(account);
     sessions.set(token, profile); setSessionCookie(res, token);
-    res.json({ user: profile });
+    res.json({ user: profile, profile: privateProfile(account) });
   } catch (err) {
     console.error('Login failed:', err.message);
     res.status(500).json({ error: 'Could not log you in. Please try again.' });
   }
 });
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   const token = parseCookies(req.headers.cookie).proxi_session;
   const user = token && sessions.get(token);
   if (!user) return res.status(401).json({ error: 'Please log in to enter the office.' });
-  res.json({ user });
+  try {
+    const account = await findAccount(user.email);
+    if (!account) return res.status(401).json({ error: 'Your account could not be found. Please log in again.' });
+    res.json({ user: publicAccount(account), profile: privateProfile(account) });
+  } catch (err) { res.status(500).json({ error: 'Could not load your profile.' }); }
+});
+app.get('/api/avatars/:id', async (req, res) => {
+  const token = parseCookies(req.headers.cookie).proxi_session;
+  if (!token || !sessions.has(token)) return res.status(401).end();
+  try {
+    const account = await findAccountById(String(req.params.id));
+    const image = account?.avatarDataUrl?.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+=*)$/);
+    if (!image) return res.status(404).end();
+    res.set('Cache-Control', 'private, max-age=300').type(image[1]).send(Buffer.from(image[2], 'base64'));
+  } catch { res.status(500).end(); }
+});
+app.patch('/api/auth/profile', async (req, res) => {
+  const token = parseCookies(req.headers.cookie).proxi_session;
+  const session = token && sessions.get(token);
+  if (!session) return res.status(401).json({ error: 'Please log in again to update your profile.' });
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 32) : '';
+  const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim().slice(0, 30) : '';
+  const dateOfBirth = typeof req.body?.dateOfBirth === 'string' ? req.body.dateOfBirth.trim() : '';
+  const avatarUrl = req.body?.avatarUrl;
+  if (name.length < 2) return res.status(400).json({ error: 'Your name needs at least two characters.' });
+  if (phoneNumber && !/^\+?[\d\s().-]{7,30}$/.test(phoneNumber)) return res.status(400).json({ error: 'Enter a valid phone number, or leave it blank.' });
+  if (dateOfBirth) {
+    const date = new Date(`${dateOfBirth}T00:00:00.000Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== dateOfBirth || date > new Date()) return res.status(400).json({ error: 'Enter a valid date of birth that is not in the future.' });
+  }
+  if (avatarUrl !== null && (typeof avatarUrl !== 'string' || avatarUrl.length > 400_000 || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(avatarUrl))) return res.status(400).json({ error: 'Choose a JPG, PNG, or WebP profile photo smaller than 300 KB.' });
+  try {
+    const account = await findAccount(session.email);
+    if (!account) return res.status(401).json({ error: 'Your account could not be found. Please log in again.' });
+    const updates = { displayName: name, phoneNumber, dateOfBirth, avatarDataUrl: avatarUrl, avatarUpdatedAt: Date.now() };
+    if (accounts) await accounts.updateOne({ _id: account._id }, { $set: updates });
+    else Object.assign(account, updates);
+    const updated = { ...account, ...updates };
+    const publicUser = publicAccount(updated);
+    sessions.set(token, publicUser);
+    for (const user of users.values()) {
+      if (user.accountId !== publicUser.id) continue;
+      user.name = publicUser.name; user.avatarUrl = publicUser.avatarUrl;
+      await saveUser(user); io.emit('profile-updated', user);
+    }
+    res.json({ user: publicUser, profile: privateProfile(updated) });
+  } catch (err) {
+    console.error('Profile update failed:', err.message);
+    res.status(500).json({ error: 'Could not save your profile. Please try again.' });
+  }
 });
 app.post('/api/auth/logout', (req, res) => {
   const token = parseCookies(req.headers.cookie).proxi_session;
@@ -139,7 +191,7 @@ io.use((socket, next) => {
 io.on('connection', socket => {
   const account = socket.data.account;
   const connected = accountSockets.get(account.id) || new Set(); connected.add(socket.id); accountSockets.set(account.id, connected);
-  const user = { id: socket.id, accountId: account.id, name: account.name, email: account.email, role: 'In the office', color: '#6f986e', x: 485 + Math.random() * 60, y: 310 + Math.random() * 70, online: true, speaking: false };
+  const user = { id: socket.id, accountId: account.id, name: account.name, email: account.email, avatarUrl: account.avatarUrl ?? null, role: 'In the office', color: '#6f986e', x: 485 + Math.random() * 60, y: 310 + Math.random() * 70, online: true, speaking: false };
   users.set(user.id, user); socket.join(user.id); saveUser(user).catch(err => console.error('Could not persist new user:', err.message));
   socket.emit('welcome', { user, officeId: OFFICE_ID, earshot: EARSHOT });
   socket.on('move', async ({ x, y }) => {

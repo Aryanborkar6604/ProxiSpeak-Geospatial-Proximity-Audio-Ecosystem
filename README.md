@@ -5,7 +5,7 @@ A single shared virtual office for the Infotact team. The React app draws an ove
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts, sessions, and presence are held in memory and are lost when the server restarts.
+2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts, profiles, sessions, and presence are held in memory and are lost when the server restarts. Profile photos are resized before storage; phone numbers and dates of birth are returned only to the signed-in account, not shared with office peers.
 3. Run `npm install`, then `npm run dev`.
 4. Open `http://localhost:5173` in two browser profiles or windows, create/sign in to a different account in each, and allow microphone access.
 5. Click **Enable sound** in both browsers, click **Say hello** to enable a microphone, and move the avatars within 65 pixels of each other.
