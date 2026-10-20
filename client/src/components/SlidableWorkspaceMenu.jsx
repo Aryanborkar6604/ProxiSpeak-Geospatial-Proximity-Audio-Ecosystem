@@ -3,17 +3,22 @@ import {
   Users, 
   MessageSquare, 
   Send, 
-  ChevronRight, 
-  ChevronLeft, 
   Search, 
-  Volume2, 
-  VolumeX, 
   Radio, 
   MapPin, 
   UserCheck, 
-  Sparkles,
-  Smile,
-  X
+  Sparkles, 
+  X,
+  SlidersHorizontal,
+  Sun,
+  Moon,
+  UserPlus,
+  LogOut,
+  Activity,
+  Headphones,
+  VolumeX,
+  ShieldCheck,
+  Compass
 } from 'lucide-react';
 
 export default function SlidableWorkspaceMenu({
@@ -30,8 +35,19 @@ export default function SlidableWorkspaceMenu({
   mutedPeers = {},
   peerAttenuations = {},
   onJumpToUser,
+  officeName = 'The Commons',
+  todayLabel = '',
+  isAmbienceOn = false,
+  onToggleAmbience,
+  onTestPing,
+  isDarkMode = true,
+  onToggleTheme,
+  onInvite,
+  onLogout,
+  closestPeerInfo,
+  micPermissionState = 'prompt',
 }) {
-  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'chat'
+  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'chat' | 'tools'
   const [search, setSearch] = useState('');
   const [chatMode, setChatMode] = useState('office'); // 'office' | 'dm'
   const [directUser, setDirectUser] = useState(null); // { id, name }
@@ -48,6 +64,17 @@ export default function SlidableWorkspaceMenu({
   const [inputText, setInputText] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
   const messagesEndRef = useRef(null);
+
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        onToggle();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onToggle]);
 
   // Auto-scroll chat to bottom
   const scrollToBottom = () => {
@@ -128,44 +155,84 @@ export default function SlidableWorkspaceMenu({
 
   return (
     <>
-      {/* Floating Toggle Pill when menu is closed */}
-      <button 
-        className={`slidable-menu-tab-btn ${isOpen ? 'is-active-tab' : ''}`}
+      {/* Backdrop overlay for smooth dismissal when clicking outside */}
+      <div 
+        className={`slidable-backdrop ${isOpen ? 'is-visible' : ''}`}
         onClick={onToggle}
-        title={isOpen ? 'Collapse Panel' : 'Open Workspace Hub'}
-        aria-label="Toggle Slidable Workspace Panel"
-      >
-        <span className="live-pulse-dot" />
-        <Users size={16} />
-        <span className="tab-btn-text">Live ({people.length})</span>
-        {unreadCount > 0 && <span className="tab-unread-badge">{unreadCount}</span>}
-        {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-      </button>
+        aria-hidden="true"
+      />
 
       {/* Slidable Menu Drawer Panel */}
-      <aside className={`slidable-workspace-drawer ${isOpen ? 'is-open' : 'is-closed'}`}>
+      <aside 
+        className={`slidable-workspace-drawer ${isOpen ? 'is-open' : 'is-closed'}`}
+        aria-label="Workspace Menu"
+      >
         {/* Drawer Header */}
         <div className="drawer-header">
           <div className="drawer-title-wrap">
             <span className="live-pulse-ring" />
             <div>
-              <h3>WORKSPACE HUB</h3>
-              <p className="drawer-subtitle">{people.length} {people.length === 1 ? 'Coworker' : 'Coworkers'} Online Now</p>
+              <h3>WORKSPACE MENU</h3>
+              <p className="drawer-subtitle">{officeName} {todayLabel ? `• ${todayLabel}` : ''}</p>
             </div>
           </div>
-          <button className="drawer-close-btn" onClick={onToggle} aria-label="Close menu">
+          <button 
+            className="drawer-close-btn" 
+            onClick={onToggle} 
+            aria-label="Close workspace menu"
+            title="Close menu (Esc)"
+          >
             <X size={18} />
           </button>
         </div>
 
-        {/* Tab Switcher */}
+        {/* Quick Tools Strip (Consolidated from topbar) */}
+        <div className="drawer-quick-tools-strip">
+          <button 
+            className="drawer-quick-tool-btn" 
+            onClick={onTestPing}
+            title="Test 3D Binaural Spatial Audio Ping"
+          >
+            <Radio size={14} className="tool-icon-signal" />
+            <span>3D Ping</span>
+          </button>
+
+          <button 
+            className={`drawer-quick-tool-btn ${isAmbienceOn ? 'is-tool-active' : ''}`} 
+            onClick={onToggleAmbience}
+            title="Toggle Spatial Ambience Drone"
+          >
+            <Sparkles size={14} className={isAmbienceOn ? 'tool-icon-signal' : 'tool-icon-muted'} />
+            <span>{isAmbienceOn ? 'Ambience: On' : 'Ambience'}</span>
+          </button>
+
+          <button 
+            className="drawer-quick-tool-btn" 
+            onClick={onToggleTheme}
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? <Sun size={14} className="tool-icon-voice" /> : <Moon size={14} className="tool-icon-brand" />}
+            <span>{isDarkMode ? 'Light' : 'Dark'}</span>
+          </button>
+
+          <button 
+            className="drawer-quick-tool-btn" 
+            onClick={onInvite}
+            title="Invite teammates to this office"
+          >
+            <UserPlus size={14} className="tool-icon-brand" />
+            <span>Invite</span>
+          </button>
+        </div>
+
+        {/* Segmented Nav Tabs */}
         <div className="drawer-nav-tabs">
           <button 
             className={`drawer-tab ${activeTab === 'live' ? 'is-active' : ''}`}
             onClick={() => setActiveTab('live')}
           >
-            <Users size={15} />
-            <span>Who is Live</span>
+            <Users size={14} />
+            <span>Teammates</span>
             <span className="drawer-count-badge">{people.length}</span>
           </button>
 
@@ -176,7 +243,7 @@ export default function SlidableWorkspaceMenu({
               setUnreadCount(0);
             }}
           >
-            <MessageSquare size={15} />
+            <MessageSquare size={14} />
             <span>Chat</span>
             {unreadCount > 0 ? (
               <span className="drawer-unread-badge">{unreadCount}</span>
@@ -184,25 +251,51 @@ export default function SlidableWorkspaceMenu({
               <span className="drawer-count-badge">{chatMessages.length}</span>
             )}
           </button>
+
+          <button 
+            className={`drawer-tab ${activeTab === 'tools' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('tools')}
+          >
+            <SlidersHorizontal size={14} />
+            <span>Audio & HUD</span>
+          </button>
         </div>
 
-        {/* TAB 1: WHO IS LIVE */}
+        {/* TAB 1: WHO IS LIVE & TELEMETRY */}
         {activeTab === 'live' && (
           <div className="drawer-tab-content">
             <div className="drawer-search-wrap">
               <Search size={15} className="drawer-search-icon" />
               <input 
                 type="text" 
-                placeholder="Search live teammates..." 
+                placeholder="Search teammates in office..." 
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="drawer-search-input"
               />
             </div>
 
+            {/* Compact Radar Telemetry Peek */}
+            {closestPeerInfo && (
+              <div className="drawer-telemetry-card">
+                <div className="telemetry-top">
+                  <span className="telemetry-beacon" />
+                  <strong>NEAREST: {closestPeerInfo.name}</strong>
+                  <span className={closestPeerInfo.inRange ? 'tag-in-range' : 'tag-distant'}>
+                    {closestPeerInfo.inRange ? 'IN RANGE (100px)' : 'OUT OF RANGE'}
+                  </span>
+                </div>
+                <div className="telemetry-details">
+                  <span>Distance: <b>{closestPeerInfo.dist}px</b></span>
+                  <span>Gain: <b>{closestPeerInfo.volumePct}%</b></span>
+                  <span>Pan: <b>{closestPeerInfo.dx < -10 ? `Left` : closestPeerInfo.dx > 10 ? `Right` : 'Center'}</b></span>
+                </div>
+              </div>
+            )}
+
             <div className="drawer-section-title">
               <span>ONLINE NOW ({visiblePeople.length})</span>
-              <span className="live-stream-label">● REAL-TIME</span>
+              <span className="live-stream-label">● 100PX AUDIO RANGE</span>
             </div>
 
             <div className="live-people-list">
@@ -217,7 +310,7 @@ export default function SlidableWorkspaceMenu({
                 let inRange = false;
                 if (!person.self && pos) {
                   const d = Math.round(Math.hypot(pos.x - localCoords.x, pos.y - localCoords.y));
-                  inRange = d <= 105;
+                  inRange = d <= 100;
                   distText = `${d}px ${inRange ? '• IN RANGE 🔊' : '• Distant'}`;
                 }
 
@@ -257,16 +350,16 @@ export default function SlidableWorkspaceMenu({
                           title={`Chat with ${person.name}`}
                           onClick={() => startDirectChat(person)}
                         >
-                          <MessageSquare size={14} />
+                          <MessageSquare size={13} />
                           <span>Chat</span>
                         </button>
                         {pos && onJumpToUser && (
                           <button 
                             className="user-action-btn jump-btn"
-                            title={`Jump to ${person.name}`}
+                            title={`Jump near ${person.name}`}
                             onClick={() => onJumpToUser(person.id)}
                           >
-                            <MapPin size={14} />
+                            <MapPin size={13} />
                           </button>
                         )}
                       </div>
@@ -277,7 +370,7 @@ export default function SlidableWorkspaceMenu({
 
               {visiblePeople.length === 0 && (
                 <div className="drawer-empty-state">
-                  <Users size={32} />
+                  <Users size={30} />
                   <p>No teammates matched your search.</p>
                 </div>
               )}
@@ -285,12 +378,12 @@ export default function SlidableWorkspaceMenu({
           </div>
         )}
 
-        {/* TAB 2: TO WHOM I WANT TO CHAT */}
+        {/* TAB 2: LIVE CHAT */}
         {activeTab === 'chat' && (
           <div className="drawer-tab-content chat-tab-content">
             {/* Recipient Channel Selector */}
             <div className="chat-channel-selector">
-              <span className="channel-select-label">TO WHOM:</span>
+              <span className="channel-select-label">TO:</span>
               <div className="channel-pills">
                 <button 
                   className={`channel-pill ${chatMode === 'office' ? 'is-active' : ''}`}
@@ -320,11 +413,11 @@ export default function SlidableWorkspaceMenu({
               </div>
             </div>
 
-            {/* Direct Message recipient prompt if in DM mode without a user */}
+            {/* Direct Message recipient prompt */}
             {chatMode === 'dm' && !directUser && (
               <div className="chat-pick-user-banner">
-                <Sparkles size={16} />
-                <span>Select a live teammate from the <strong>Who is Live</strong> tab to begin a 1-on-1 private chat.</span>
+                <Sparkles size={15} />
+                <span>Select a teammate from the <strong>Teammates</strong> tab to start a direct message.</span>
               </div>
             )}
 
@@ -366,7 +459,7 @@ export default function SlidableWorkspaceMenu({
             {/* Chat Input Bar */}
             <form onSubmit={handleSendMessage} className="chat-input-form">
               <input 
-                type="text"
+                type="text" 
                 placeholder={chatMode === 'office' ? "Message #office (All)..." : `Direct message @${directUser?.name || 'teammate'}...`}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -379,13 +472,103 @@ export default function SlidableWorkspaceMenu({
                 disabled={!inputText.trim()}
                 aria-label="Send message"
               >
-                <Send size={16} />
+                <Send size={15} />
               </button>
             </form>
           </div>
         )}
+
+        {/* TAB 3: AUDIO CONTROLS & HUD SETTINGS */}
+        {activeTab === 'tools' && (
+          <div className="drawer-tab-content tools-tab-content">
+            <div className="tools-section">
+              <h4>SPATIAL AUDIO ENGINE</h4>
+              <p className="tools-help">Audio automatically activates within 100px. Walls dampen sound.</p>
+
+              <div className="tools-card">
+                <div className="tools-card-row">
+                  <div>
+                    <strong>Binaural 3D Ping</strong>
+                    <p>Emit a left-to-right acoustic pulse to verify ear channels.</p>
+                  </div>
+                  <button className="button button-secondary text-xs" onClick={onTestPing}>
+                    <Radio size={14} className="tool-icon-signal" />
+                    <span>Test Ping</span>
+                  </button>
+                </div>
+
+                <div className="tools-divider" />
+
+                <div className="tools-card-row">
+                  <div>
+                    <strong>Spatial Ambience Drone</strong>
+                    <p>Subtle generative white/green audio drone for deep focus.</p>
+                  </div>
+                  <button 
+                    className={`button text-xs ${isAmbienceOn ? 'button-primary' : 'button-secondary'}`}
+                    onClick={onToggleAmbience}
+                  >
+                    <Sparkles size={14} />
+                    <span>{isAmbienceOn ? 'Turn Off' : 'Turn On'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="tools-section">
+              <h4>PREFERENCES & SESSION</h4>
+              <div className="tools-card">
+                <div className="tools-card-row">
+                  <div>
+                    <strong>Interface Theme</strong>
+                    <p>{isDarkMode ? 'Dark theme active' : 'Light theme active'}</p>
+                  </div>
+                  <button className="button button-secondary text-xs" onClick={onToggleTheme}>
+                    {isDarkMode ? <Sun size={14} className="tool-icon-voice" /> : <Moon size={14} className="tool-icon-brand" />}
+                    <span>Switch to {isDarkMode ? 'Light' : 'Dark'}</span>
+                  </button>
+                </div>
+
+                <div className="tools-divider" />
+
+                <div className="tools-card-row">
+                  <div>
+                    <strong>Microphone Security</strong>
+                    <p>{micPermissionState === 'granted' ? 'Access granted • Hardware active' : 'Microphone muted/off'}</p>
+                  </div>
+                  <span className="privacy-badge">
+                    <ShieldCheck size={14} /> DTLS-SRTP P2P
+                  </span>
+                </div>
+
+                <div className="tools-divider" />
+
+                <div className="tools-card-row">
+                  <div>
+                    <strong>Signed in as</strong>
+                    <p>{userName}</p>
+                  </div>
+                  <button className="button button-secondary text-xs logout-btn-subtle" onClick={onLogout}>
+                    <LogOut size={14} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Drawer Footer with Status */}
+        <div className="drawer-footer">
+          <span className="footer-status">
+            <span className="live-dot" /> Live Office Connected
+          </span>
+          <button className="footer-invite-btn" onClick={onInvite}>
+            <UserPlus size={13} />
+            <span>Invite Link</span>
+          </button>
+        </div>
       </aside>
     </>
   );
 }
-
