@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
@@ -33,18 +34,39 @@ export default function App() {
     );
   }, []);
 
+  const updateAudioVolumes = useCallback(() => {
+    Object.entries(audioElementsRef.current).forEach(([id, audio]) => {
+      const user = remoteUsersRef.current[id];
+
+      if (!user) {
+        audio.volume = 0;
+        return;
+      }
+
+      const distance = getDistance(user);
+      audio.volume = Math.max(
+        0,
+        Math.min(1, 1 - distance / AUDIO_RANGE)
+      );
+    });
+  }, [getDistance]);
+
   const closePeer = useCallback((userId) => {
     const peer = peersRef.current[userId];
+
     if (peer) {
       peer.ontrack = null;
       peer.onicecandidate = null;
       peer.onconnectionstatechange = null;
+      peer.oniceconnectionstatechange = null;
       peer.close();
       delete peersRef.current[userId];
     }
+
     delete pendingCandidatesRef.current[userId];
 
     const audio = audioElementsRef.current[userId];
+
     if (audio) {
       audio.pause();
       audio.srcObject = null;
@@ -54,18 +76,25 @@ export default function App() {
   }, []);
 
   const createPeer = useCallback((userId) => {
-    if (peersRef.current[userId]) return peersRef.current[userId];
+    if (peersRef.current[userId]) {
+      return peersRef.current[userId];
+    }
 
     const peer = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" }
+      ]
     });
 
     peersRef.current[userId] = peer;
     pendingCandidatesRef.current[userId] = [];
 
-    // Create a stable audio channel even before the microphone is enabled.
-    const transceiver = peer.addTransceiver("audio", { direction: "sendrecv" });
+    const transceiver = peer.addTransceiver("audio", {
+      direction: "sendrecv"
+    });
+
     const localTrack = micStreamRef.current?.getAudioTracks()[0];
+
     if (localTrack) {
       transceiver.sender.replaceTrack(localTrack).catch((error) => {
         console.error("Could not attach microphone:", error);
@@ -76,140 +105,171 @@ export default function App() {
       if (event.candidate) {
         socketRef.current?.emit("webrtc-ice-candidate", {
           targetId: userId,
-          candidate: event.candidate,
+          candidate: event.candidate
         });
       }
     };
 
     peer.ontrack = async (event) => {
-      console.log("Remote track received:", event.track.kind, event.streams);
       let audio = audioElementsRef.current[userId];
 
       if (!audio) {
         audio = document.createElement("audio");
         audio.autoplay = true;
         audio.playsInline = true;
-        audio.controls = true; // Visible during troubleshooting.
-        audio.style.display = "block";
-        audio.style.width = "250px";
-        audio.style.margin = "8px auto";
+        audio.controls = false;
+        audio.style.display = "none";
         document.body.appendChild(audio);
+
         audioElementsRef.current[userId] = audio;
       }
 
-      const stream = event.streams?.[0] || new MediaStream([event.track]);
+      const stream =
+        event.streams?.[0] || new MediaStream([event.track]);
+
       audio.srcObject = stream;
       audio.muted = false;
 
-      const user = remoteUsersRef.current[userId];
-      const distance = user
-        ? Math.hypot(user.x - positionRef.current.x, user.y - positionRef.current.y)
-        : 0;
-      audio.volume = Math.max(0, Math.min(1, 1 - distance / AUDIO_RANGE));
+      updateAudioVolumes();
 
       try {
         await audio.play();
-        setAudioStatus("Remote audio received; playback started");
-        console.log("Remote audio playback started");
+        setAudioStatus("Voice connection active");
       } catch (error) {
         console.error("Audio playback failed:", error);
-        setAudioStatus("Audio received, but playback failed. Click the page/player.");
+        setAudioStatus(
+          "Audio received. Click the page to allow playback."
+        );
       }
     };
 
     peer.onconnectionstatechange = () => {
-      console.log(`Peer ${userId} connection state:`, peer.connectionState);
+      console.log(
+        `Peer ${userId} connection state:`,
+        peer.connectionState
+      );
+
       if (peer.connectionState === "connected") {
-        setAudioStatus("Audio connection established; waiting for remote sound");
+        setAudioStatus("Connected; waiting for remote sound");
       } else if (peer.connectionState === "failed") {
-        setAudioStatus("Audio connection failed; check Console/network");
+        setAudioStatus("Audio connection failed");
       } else if (peer.connectionState === "disconnected") {
         setAudioStatus("Audio temporarily disconnected");
       }
     };
 
     peer.oniceconnectionstatechange = () => {
-      console.log(`Peer ${userId} ICE state:`, peer.iceConnectionState);
+      console.log(
+        `Peer ${userId} ICE state:`,
+        peer.iceConnectionState
+      );
     };
 
     return peer;
-  }, []);
+  }, [updateAudioVolumes]);
 
-  const flushPendingCandidates = useCallback(async (userId, peer) => {
-    const candidates = pendingCandidatesRef.current[userId] || [];
-    pendingCandidatesRef.current[userId] = [];
-    for (const candidate of candidates) {
-      try {
-        await peer.addIceCandidate(candidate);
-      } catch (error) {
-        console.error("Could not add queued ICE candidate:", error);
+  const flushPendingCandidates = useCallback(
+    async (userId, peer) => {
+      const candidates = pendingCandidatesRef.current[userId] || [];
+      pendingCandidatesRef.current[userId] = [];
+
+      for (const candidate of candidates) {
+        try {
+          await peer.addIceCandidate(candidate);
+        } catch (error) {
+          console.error("Could not add ICE candidate:", error);
+        }
       }
-    }
-  }, []);
+    },
+    []
+  );
 
   const makeOffer = useCallback(async (userId) => {
     const peer = createPeer(userId);
+
     try {
       if (peer.signalingState !== "stable") return;
+
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
+
       socketRef.current?.emit("webrtc-offer", {
         targetId: userId,
-        offer: peer.localDescription,
+        offer: peer.localDescription
       });
     } catch (error) {
       console.error("Could not create audio offer:", error);
     }
   }, [createPeer]);
 
-  const handleOffer = useCallback(async ({ fromId, offer }) => {
-    const peer = createPeer(fromId);
-    try {
-      if (peer.signalingState !== "stable") {
-        await peer.setLocalDescription({ type: "rollback" });
+  const handleOffer = useCallback(
+    async ({ fromId, offer }) => {
+      const peer = createPeer(fromId);
+
+      try {
+        if (peer.signalingState !== "stable") {
+          await peer.setLocalDescription({ type: "rollback" });
+        }
+
+        await peer.setRemoteDescription(offer);
+        await flushPendingCandidates(fromId, peer);
+
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+
+        socketRef.current?.emit("webrtc-answer", {
+          targetId: fromId,
+          answer: peer.localDescription
+        });
+      } catch (error) {
+        console.error("Could not answer audio offer:", error);
+        setAudioStatus("Could not establish audio connection");
       }
-      await peer.setRemoteDescription(offer);
-      await flushPendingCandidates(fromId, peer);
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      socketRef.current?.emit("webrtc-answer", {
-        targetId: fromId,
-        answer: peer.localDescription,
-      });
-    } catch (error) {
-      console.error("Could not answer audio offer:", error);
-      setAudioStatus("Could not negotiate audio; check Console");
-    }
-  }, [createPeer, flushPendingCandidates]);
+    },
+    [createPeer, flushPendingCandidates]
+  );
 
-  const handleAnswer = useCallback(async ({ fromId, answer }) => {
-    const peer = peersRef.current[fromId];
-    if (!peer || peer.signalingState !== "have-local-offer") return;
-    try {
-      await peer.setRemoteDescription(answer);
-      await flushPendingCandidates(fromId, peer);
-    } catch (error) {
-      console.error("Could not set audio answer:", error);
-    }
-  }, [flushPendingCandidates]);
+  const handleAnswer = useCallback(
+    async ({ fromId, answer }) => {
+      const peer = peersRef.current[fromId];
 
-  const handleIceCandidate = useCallback(async ({ fromId, candidate }) => {
-    const peer = peersRef.current[fromId];
-    if (!peer) {
-      console.warn("ICE candidate arrived before peer exists:", fromId);
-      return;
-    }
-    if (!peer.remoteDescription) {
-      pendingCandidatesRef.current[fromId] ||= [];
-      pendingCandidatesRef.current[fromId].push(candidate);
-      return;
-    }
-    try {
-      await peer.addIceCandidate(candidate);
-    } catch (error) {
-      console.error("Could not add network candidate:", error);
-    }
-  }, []);
+      if (!peer || peer.signalingState !== "have-local-offer") {
+        return;
+      }
+
+      try {
+        await peer.setRemoteDescription(answer);
+        await flushPendingCandidates(fromId, peer);
+      } catch (error) {
+        console.error("Could not set audio answer:", error);
+      }
+    },
+    [flushPendingCandidates]
+  );
+
+  const handleIceCandidate = useCallback(
+    async ({ fromId, candidate }) => {
+      const peer = peersRef.current[fromId];
+
+      if (!peer) {
+        console.warn("ICE candidate arrived before peer exists");
+        return;
+      }
+
+      if (!peer.remoteDescription) {
+        pendingCandidatesRef.current[fromId] ||= [];
+        pendingCandidatesRef.current[fromId].push(candidate);
+        return;
+      }
+
+      try {
+        await peer.addIceCandidate(candidate);
+      } catch (error) {
+        console.error("Could not add ICE candidate:", error);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const socket = io(SERVER_URL);
@@ -219,29 +279,45 @@ export default function App() {
       setConnected(true);
       console.log("Socket connected:", socket.id);
     });
-    socket.on("disconnect", () => setConnected(false));
+
+    socket.on("disconnect", () => {
+      setConnected(false);
+      setAudioStatus("Server disconnected");
+    });
 
     socket.on("current-users", (users) => {
       const others = { ...users };
       delete others[socket.id];
+
       updateRemoteUsers(others);
-      Object.keys(others).forEach((id) => makeOffer(id));
+
+      Object.keys(others).forEach((id) => {
+        makeOffer(id);
+      });
     });
 
     socket.on("user-joined", (user) => {
-      updateRemoteUsers({ ...remoteUsersRef.current, [user.id]: user });
+      updateRemoteUsers({
+        ...remoteUsersRef.current,
+        [user.id]: user
+      });
     });
 
     socket.on("user-moved", (user) => {
       if (user.id !== socket.id) {
-        updateRemoteUsers({ ...remoteUsersRef.current, [user.id]: user });
+        updateRemoteUsers({
+          ...remoteUsersRef.current,
+          [user.id]: user
+        });
       }
     });
 
     socket.on("user-left", (id) => {
       closePeer(id);
+
       const updated = { ...remoteUsersRef.current };
       delete updated[id];
+
       updateRemoteUsers(updated);
     });
 
@@ -251,37 +327,65 @@ export default function App() {
 
     return () => {
       socket.disconnect();
-      Object.keys(peersRef.current).forEach(closePeer);
-      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+
+      Object.keys(peersRef.current).forEach((id) => {
+        closePeer(id);
+      });
+
+      micStreamRef.current?.getTracks().forEach((track) => {
+        track.stop();
+      });
+
+      micStreamRef.current = null;
       socketRef.current = null;
     };
-  }, [closePeer, handleAnswer, handleIceCandidate, handleOffer, makeOffer, updateRemoteUsers]);
+  }, [
+    closePeer,
+    handleAnswer,
+    handleIceCandidate,
+    handleOffer,
+    makeOffer,
+    updateRemoteUsers
+  ]);
+
+  useEffect(() => {
+    updateAudioVolumes();
+  }, [position, remoteUsers, updateAudioVolumes]);
 
   async function enableMicrophone() {
     try {
       setMicError("");
+
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone access is unavailable. Open the app using localhost in Chrome.");
+        throw new Error(
+          "Microphone access is unavailable. Open the app on localhost in Chrome."
+        );
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true
+        }
       });
+
       micStreamRef.current = stream;
-
       const track = stream.getAudioTracks()[0];
-      console.log("Local microphone track:", track?.label, track?.readyState, track?.enabled);
 
-      // Ensure each existing peer sends this microphone track.
       for (const userId of Object.keys(remoteUsersRef.current)) {
         const peer = createPeer(userId);
+
         const transceiver = peer.getTransceivers().find(
           (item) => item.receiver.track.kind === "audio"
         );
-        if (transceiver) await transceiver.sender.replaceTrack(track);
+
+        if (transceiver) {
+          await transceiver.sender.replaceTrack(track);
+        }
       }
 
       setMicEnabled(true);
+
       setAudioStatus(
         Object.keys(remoteUsersRef.current).length
           ? "Microphone on; waiting for remote audio"
@@ -289,9 +393,14 @@ export default function App() {
       );
     } catch (error) {
       console.error("Microphone error:", error);
-      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+
+      micStreamRef.current?.getTracks().forEach((track) => {
+        track.stop();
+      });
+
       micStreamRef.current = null;
       setMicEnabled(false);
+
       setMicError(
         error.name === "NotAllowedError"
           ? "Microphone permission denied. Allow it in Chrome site settings."
@@ -301,13 +410,17 @@ export default function App() {
   }
 
   function disableMicrophone() {
-    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current?.getTracks().forEach((track) => {
+      track.stop();
+    });
+
     micStreamRef.current = null;
 
     Object.values(peersRef.current).forEach((peer) => {
       const transceiver = peer.getTransceivers().find(
         (item) => item.receiver.track.kind === "audio"
       );
+
       if (transceiver) {
         transceiver.sender.replaceTrack(null).catch((error) => {
           console.error("Could not detach microphone:", error);
@@ -318,18 +431,6 @@ export default function App() {
     setMicEnabled(false);
     setAudioStatus("Microphone off");
   }
-
-  useEffect(() => {
-    Object.entries(audioElementsRef.current).forEach(([id, audio]) => {
-      const user = remoteUsers[id];
-      if (!user) {
-        audio.volume = 0;
-        return;
-      }
-      const distance = getDistance(user);
-      audio.volume = Math.max(0, Math.min(1, 1 - distance / AUDIO_RANGE));
-    });
-  }, [position, remoteUsers, getDistance]);
 
   function moveAvatar(event) {
     const key = event.key.toLowerCase();
@@ -343,23 +444,39 @@ export default function App() {
     else return;
 
     event.preventDefault();
+
     const next = {
       x: Math.max(20, Math.min(700, x)),
-      y: Math.max(20, Math.min(350, y)),
+      y: Math.max(20, Math.min(350, y))
     };
+
     positionRef.current = next;
     setPosition(next);
+
     socketRef.current?.emit("move", next);
   }
 
   const distances = Object.values(remoteUsers).map(getDistance);
-  const distance = distances.length ? Math.round(Math.min(...distances)) : null;
+  const distance = distances.length
+    ? Math.round(Math.min(...distances))
+    : null;
+
   const volumeLevel = distance === null
     ? 0
-    : Math.max(0, Math.min(100, Math.round((1 - distance / AUDIO_RANGE) * 100)));
+    : Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round((1 - distance / AUDIO_RANGE) * 100)
+        )
+      );
 
   return (
-    <main className="app" tabIndex={0} onKeyDown={moveAvatar}>
+    <main
+      className="app"
+      tabIndex={0}
+      onKeyDown={moveAvatar}
+    >
       <header className="topbar">
         <h1>🎧 ProxiSpeak</h1>
         <span>Geospatial Proximity Audio Ecosystem</span>
@@ -368,31 +485,65 @@ export default function App() {
       <section className="welcome">
         <h2>Welcome to your virtual office</h2>
         <p>Move your avatar and connect with people nearby.</p>
+
         <p>
-          Connection: <strong>{connected ? "Connected" : "Connecting..."}</strong>
-          {" · "}Other users: {Object.keys(remoteUsers).length}
+          Connection:{" "}
+          <strong>
+            {connected ? "Connected" : "Connecting..."}
+          </strong>
+          {" · "}
+          Other users: {Object.keys(remoteUsers).length}
         </p>
+
         <p>
-          Nearest user distance: {distance === null ? "No other users" : `${distance} units`}
+          Nearest user distance:{" "}
+          {distance === null ? "No other users" : `${distance} units`}
         </p>
+
         <p>Proximity volume: {volumeLevel}%</p>
 
-        <div style={{
-          width: "200px", height: "12px", background: "#ddd",
-          borderRadius: "8px", overflow: "hidden", margin: "8px auto"
-        }}>
-          <div style={{
-            width: `${volumeLevel}%`, height: "100%", background: "#28a745",
-            transition: "width 0.2s"
-          }} />
+        <div
+          style={{
+            width: "200px",
+            height: "12px",
+            background: "#ddd",
+            borderRadius: "8px",
+            overflow: "hidden",
+            margin: "8px auto"
+          }}
+          aria-label={`Proximity volume ${volumeLevel}%`}
+        >
+          <div
+            style={{
+              width: `${volumeLevel}%`,
+              height: "100%",
+              background: "#28a745",
+              transition: "width 0.2s"
+            }}
+          />
         </div>
 
-        <button onClick={micEnabled ? disableMicrophone : enableMicrophone}>
-          {micEnabled ? "🔇 Disable Microphone" : "🎤 Enable Microphone"}
+        <button
+          onClick={
+            micEnabled ? disableMicrophone : enableMicrophone
+          }
+        >
+          {micEnabled
+            ? "🔇 Disable Microphone"
+            : "🎤 Enable Microphone"}
         </button>
-        <p>{micEnabled ? "Microphone is enabled." : "Microphone is disabled."}</p>
+
+        <p>
+          Microphone: {micEnabled ? "Enabled" : "Disabled"}
+        </p>
+
         <p>Audio status: {audioStatus}</p>
-        {micError && <p style={{ color: "red" }}>{micError}</p>}
+
+        {micError && (
+          <p role="alert" style={{ color: "red" }}>
+            {micError}
+          </p>
+        )}
       </section>
 
       <section className="office">
@@ -404,22 +555,32 @@ export default function App() {
           <div
             key={user.id}
             className="avatar remote-avatar"
-            style={{ left: user.x, top: user.y }}
+            style={{
+              left: user.x,
+              top: user.y
+            }}
           >
             🧑‍💻
             <span>Guest {user.id.slice(0, 4)}</span>
           </div>
         ))}
 
-        <div className="avatar" style={{ left: position.x, top: position.y }}>
+        <div
+          className="avatar"
+          style={{
+            left: position.x,
+            top: position.y
+          }}
+        >
           🧑‍💻
           <span>You</span>
         </div>
       </section>
 
       <footer>
-        Use arrow keys or W, A, S, D to move. Open this site in two browser tabs
-        to test. Use headphones to avoid audio feedback.
+        Use arrow keys or W, A, S, D to move.
+        Open this site in two browser tabs to test.
+        Use headphones to avoid audio feedback.
       </footer>
     </main>
   );
