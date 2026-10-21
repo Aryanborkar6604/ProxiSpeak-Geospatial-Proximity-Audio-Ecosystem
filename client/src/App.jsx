@@ -7,9 +7,9 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import './App.css';
 import {
-  Activity, ArrowUpRight, AudioLines, Bell, Building2, Calendar, Check, ChevronDown, Command, Copy, Eye, EyeOff, Headphones,
-  LayoutGrid, LogOut, Menu, MessageSquare, Mic, MicOff, Monitor, Moon, Radio, Search, Settings,
-  Share2, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X,
+  Activity, ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Menu, Mic,
+  MicOff, Moon, Radio, Search,
+  Share2, ShieldCheck, SlidersHorizontal, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
 import SlidableWorkspaceMenu from './components/SlidableWorkspaceMenu';
@@ -19,19 +19,6 @@ import deviceCache from './utils/deviceCache';
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const colors = ['#e6b29f', '#9aaca0', '#c2a6be', '#d7bd89', '#9daec7', '#cf9b88'];
 const todayLabel = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date()).toUpperCase();
-
-const OFFICE_ROOMS = [
-  { id: 'reception', name: 'Reception', icon: '●', x: 175, y: 160, desc: 'Welcome desk & greeting area' },
-  { id: 'meeting-1', name: 'Meeting Room 1', icon: '👥', x: 540, y: 160, desc: 'Interactive whiteboard conference suite' },
-  { id: 'meeting-2', name: 'Meeting Room 2', icon: '🖥️', x: 860, y: 160, desc: 'Scenic boardroom & presentation table' },
-  { id: 'lounge', name: 'Lounge', icon: '☕', x: 145, y: 430, desc: 'Curved leather sectional & casual coffee' },
-  { id: 'workstations', name: 'Open Workstations', icon: '💻', x: 440, y: 420, desc: 'Dual-desk pods with monitors & laptops' },
-  { id: 'project-hub', name: 'Project Hub', icon: '</>', x: 720, y: 450, desc: 'Collaboration workbench & design desk' },
-  { id: 'focus-zone', name: 'Focus Zone', icon: '🎧', x: 910, y: 460, desc: 'Soundproof private phone booths' },
-  { id: 'game-zone', name: 'Game Zone', icon: '🎮', x: 150, y: 640, desc: 'Billiards pool, foosball & neon wall' },
-  { id: 'cafeteria', name: 'Cafeteria', icon: '☕', x: 480, y: 640, desc: 'Espresso bar, beverage coolers & tables' },
-  { id: 'town-hall', name: 'Town Hall', icon: '📊', x: 800, y: 650, desc: 'Auditorium theater rows & stage screen' },
-];
 
 const getBackendBase = () => {
   if (typeof window !== 'undefined') {
@@ -182,89 +169,6 @@ function App() {
   });
 
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState('office');
-  const [showRoomJumper, setShowRoomJumper] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [flyingEmojis, setFlyingEmojis] = useState([]);
-
-  const [currentDateTime, setCurrentDateTime] = useState(() => {
-    const d = new Date();
-    return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-      + ' · '
-      + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  });
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const d = new Date();
-      setCurrentDateTime(
-        d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-        + ' · '
-        + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-      );
-    }, 30000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const jumpToRoom = (room) => {
-    if (socket) {
-      socket.emit('player:move', { x: room.x, y: room.y });
-    }
-    setLocalCoords({ x: room.x, y: room.y });
-    handlePositionChange({ x: room.x, y: room.y }, peers);
-    deviceCache.savePosition(currentOfficeId, userId, { x: room.x, y: room.y });
-    toast.success(`Teleported to ${room.name}`);
-    setShowRoomJumper(false);
-  };
-
-  const triggerEmojiReaction = (emoji) => {
-    const id = Date.now() + Math.random();
-    setFlyingEmojis((prev) => [...prev, { id, emoji, x: localCoords.x, y: localCoords.y }]);
-    toast(`Reacted with ${emoji}`, { duration: 1500 });
-    playSpatialPing();
-    setShowEmojiPicker(false);
-    setTimeout(() => {
-      setFlyingEmojis((prev) => prev.filter((item) => item.id !== id));
-    }, 2200);
-  };
-
-  const toggleDeafen = () => {
-    setIsDeafened((prev) => {
-      const next = !prev;
-      toast(next ? 'Headphones deafened' : 'Headphones audio restored', {
-        description: next ? 'Incoming teammate voice is muted.' : 'Incoming teammate voice is unmuted.',
-      });
-      return next;
-    });
-  };
-
-  const handleToggleScreenShare = async () => {
-    if (!isScreenSharing) {
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-          await navigator.mediaDevices.getDisplayMedia({ video: true });
-          setIsScreenSharing(true);
-          toast.success('Screen share active');
-        } else {
-          toast.info('Screen share broadcast enabled');
-          setIsScreenSharing(true);
-        }
-      } catch {
-        toast('Screen share cancelled');
-      }
-    } else {
-      setIsScreenSharing(false);
-      toast('Screen share stopped');
-    }
-  };
-
-  const filteredRooms = useMemo(() => {
-    if (!search.trim()) return OFFICE_ROOMS;
-    const query = search.toLowerCase();
-    return OFFICE_ROOMS.filter((r) => r.name.toLowerCase().includes(query) || r.desc.toLowerCase().includes(query));
-  }, [search]);
 
   useEffect(() => {
     document.body.classList.toggle('server-busy', serverBusy);
@@ -760,82 +664,53 @@ function App() {
     <TooltipProvider>
       <main className={`app-shell ${isDarkMode ? 'dark-theme' : ''}`}>
       <ServerBusyIndicator active={serverBusy} />
-      {/* TOP NAVIGATION BAR MATCHING CONCEPT IMAGE */}
-      <header className="concept-topbar">
-        <div className="concept-topbar-left">
-          <div className="concept-brand-wrap">
-            <Brand />
-            <span className="concept-tagline">Work Closer, Talk Naturally.</span>
-          </div>
-
-          <div className="concept-search-pill">
-            <Search size={14} className="concept-search-icon" />
-            <input
-              type="text"
-              placeholder="Search colleagues, rooms..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onFocus={() => setShowRoomJumper(true)}
-              aria-label="Search colleagues and rooms"
-            />
-            {search && (
-              <button className="concept-search-clear" onClick={() => setSearch('')} aria-label="Clear search">
-                <X size={12} />
-              </button>
-            )}
+      <header className="topbar">
+        <div className="topbar-brand">
+          <Brand />
+          <span className="topbar-divider" />
+          <div className="office-switcher" aria-label={`Current office: ${officeName}`}>
+            <span className="office-icon">C</span>
+            <span><strong>{officeName}</strong><small>Team office</small></span>
           </div>
         </div>
-
-        <div className="concept-topbar-right">
-          <span className="concept-status-pill pill-online">
-            <span className="live-dot" /> Online {people.length + 11}
+        <div className="topbar-center">
+          <span className="connection-indicator" role="status">
+            <span className={connected ? 'live-dot' : 'live-dot is-offline'} />
+            {connected ? 'Connected' : 'Reconnecting'}
           </span>
-
-          <span className="concept-status-pill pill-datetime">
-            <Calendar size={13} /> {currentDateTime}
-          </span>
-
+          <span className="topbar-separator" />
+          <span className="privacy-label"><ShieldCheck size={14} /> Signed in</span>
+        </div>
+        <div className="topbar-actions">
+          {/* THE CONSOLIDATED SLIDABLE MENU TRIGGER BUTTON */}
           <button
-            className="concept-icon-btn"
+            className={`sliderable-menu-trigger-btn ${isWorkspaceMenuOpen ? 'is-active' : ''}`}
             onClick={() => setIsWorkspaceMenuOpen((prev) => !prev)}
-            title="Office Calendar"
-            aria-label="Office Calendar"
+            aria-label="Toggle Slidable Workspace Menu"
+            title="Open Slidable Workspace Menu: Audio, Teammates & Chat"
           >
-            <Calendar size={15} />
+            <SlidersHorizontal size={14} className="trigger-icon" />
+            <span className="trigger-label">Workspace Menu</span>
+            <span className="trigger-badge">{people.length}</span>
           </button>
 
-          <button
-            className="concept-icon-btn with-badge"
-            onClick={() => setIsWorkspaceMenuOpen((prev) => !prev)}
-            title="Workspace Settings"
-            aria-label="Workspace Settings"
-          >
-            <Settings size={15} />
-            <span className="concept-badge-dot" />
+          <button className="button button-primary invite-button" onClick={() => setShowInviteModal(true)}>
+            <UserPlus size={14} /> <span>Invite</span>
           </button>
 
-          <div
-            className="concept-user-chip"
-            onClick={logout}
-            title="Sign out of ProxiSpeak"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && logout()}
-          >
-            <div className="concept-chip-avatar">
-              {initials(userName)}
-              <span className="concept-status-beacon" />
-            </div>
-            <div className="concept-chip-info">
-              <strong className="concept-chip-name">{userName}</strong>
-              <small className="concept-chip-status">In Office</small>
-            </div>
-            <LogOut size={13} className="concept-chip-logout" />
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="profile-button" onClick={logout} aria-label={`Sign out ${userName}`}>
+                <span className="profile-avatar">{initials(userName)}</span>
+                <span className="profile-name">{userName}</span>
+                <LogOut size={15} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Sign out</TooltipContent>
+          </Tooltip>
         </div>
       </header>
 
-      {/* SLIDABLE WORKSPACE MENU DRAWER (Access audio, telemetry, teammates & chat) */}
       <SlidableWorkspaceMenu
         isOpen={isWorkspaceMenuOpen}
         onToggle={() => setIsWorkspaceMenuOpen((prev) => !prev)}
@@ -872,256 +747,238 @@ function App() {
         micPermissionState={micPermissionState}
       />
 
-      {/* MAIN VIRTUAL OFFICE STAGE */}
-      <div className="concept-workspace-layout">
-        {/* FLOATING LEFT VERTICAL NAVIGATION RAIL */}
-        <nav className="concept-left-rail" aria-label="Vertical navigation rail">
-          <button
-            className={`rail-btn ${activeNav === 'office' ? 'is-active' : ''}`}
-            onClick={() => setActiveNav('office')}
-            title="Office Floor View"
-          >
-            <Building2 size={18} />
-            <span>Office</span>
-          </button>
-
-          <button
-            className={`rail-btn ${activeNav === 'people' ? 'is-active' : ''}`}
-            onClick={() => {
-              setActiveNav('people');
-              setIsWorkspaceMenuOpen(true);
-            }}
-            title="Teammates & People"
-          >
-            <Users size={18} />
-            <span>People</span>
-          </button>
-
-          <button
-            className={`rail-btn ${showRoomJumper ? 'is-active' : ''}`}
-            onClick={() => setShowRoomJumper((prev) => !prev)}
-            title="Explore Rooms (10 Zones)"
-          >
-            <LayoutGrid size={18} />
-            <span>Rooms</span>
-          </button>
-
-          <button
-            className={`rail-btn ${activeNav === 'calendar' ? 'is-active' : ''}`}
-            onClick={() => {
-              setActiveNav('calendar');
-              setIsWorkspaceMenuOpen(true);
-            }}
-            title="Office Calendar"
-          >
-            <Calendar size={18} />
-            <span>Calendar</span>
-          </button>
-
-          <button
-            className={`rail-btn ${activeNav === 'chat' ? 'is-active' : ''}`}
-            onClick={() => {
-              setActiveNav('chat');
-              setIsWorkspaceMenuOpen(true);
-            }}
-            title="Office Chat & Notes"
-          >
-            <MessageSquare size={18} />
-            <span>Chat</span>
-          </button>
-
-          <button
-            className={`rail-btn ${activeNav === 'settings' ? 'is-active' : ''}`}
-            onClick={() => {
-              setActiveNav('settings');
-              setIsWorkspaceMenuOpen(true);
-            }}
-            title="Workspace Settings"
-          >
-            <Settings size={18} />
-            <span>Settings</span>
-          </button>
-        </nav>
-
-        {/* ROOM JUMPER DROPDOWN (10 Interactive Zones) */}
-        <AnimatePresence>
-          {showRoomJumper && (
-            <motion.div
-              className="room-jumper-dropdown"
-              initial={{ opacity: 0, y: -10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.95 }}
-              transition={{ duration: 0.18 }}
-            >
-              <div className="room-jumper-header">
-                <div>
-                  <strong>OFFICE ROOMS & ZONES</strong>
-                  <p>Click any room to teleport your avatar directly</p>
-                </div>
-                <button
-                  className="room-jumper-close"
-                  onClick={() => setShowRoomJumper(false)}
-                  aria-label="Close rooms menu"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-
-              <div className="room-jumper-grid">
-                {filteredRooms.map((room) => (
-                  <button
-                    key={room.id}
-                    className="room-jumper-card"
-                    onClick={() => jumpToRoom(room)}
-                  >
-                    <span className="room-jumper-icon">{room.icon}</span>
-                    <div className="room-jumper-meta">
-                      <span className="room-jumper-name">{room.name}</span>
-                      <small className="room-jumper-desc">{room.desc}</small>
-                    </div>
-                  </button>
+      <div className="workspace-layout">
+        <section className="world-column">
+          <div className="world-heading-compact">
+            <div className="heading-compact-left">
+              <span className="heading-compact-title">{officeName}</span>
+              <span className="heading-compact-floor">FLOOR 01</span>
+              <span className="heading-compact-dot">·</span>
+              <span className="heading-compact-hint">Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to talk within 100px</span>
+            </div>
+            <div className="heading-compact-right">
+              <span className="people-count">
+                <span className="heading-live-dot" />
+                <strong>{people.length}</strong> {people.length === 1 ? 'person' : 'people'} here
+              </span>
+              <div className="avatar-stack" aria-label={`${people.length} people in office`}>
+                {people.slice(0, 4).map((person, i) => (
+                  <span key={person.id} className={`mini-avatar mini-${i}`} style={{ background: person.self ? '#286b5e' : colors[i % colors.length] }}>
+                    {initials(person.name)}
+                  </span>
                 ))}
+                {people.length > 4 && <span className="avatar-more">+{people.length - 4}</span>}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* FULL OFFICE CANVAS VIEWPORT */}
-        <div className="concept-canvas-stage">
-          <OfficeCanvas
-            socket={socket}
-            officeState={officeState}
-            localUserId={userId}
-            onPeersChange={setPeers}
-            onPositionChange={handlePositionChange}
-            onFrameRateChange={handleFrameRateChange}
-            nearbyPeers={webrtcPeers}
-            speakingPeers={speakingPeers}
-            mutedPeers={mutedPeers}
-            isSpeaking={isSpeaking}
-            isMuted={muted}
-            peerAttenuations={peerAttenuations}
-            isDarkMode={isDarkMode}
-          />
-
-          {/* FLYING EMOJI REACTION PARTICLES */}
-          {flyingEmojis.map((item) => (
-            <span key={item.id} className="flying-emoji-bubble">
-              {item.emoji}
-            </span>
-          ))}
-        </div>
-
-        {/* FLOATING BOTTOM DOCK MATCHING CONCEPT IMAGE */}
-        <footer className="concept-bottom-dock">
-          {/* Bottom Left: User Status Pill */}
-          <div className="dock-user-chip">
-            <div className="dock-user-avatar">
-              {initials(userName)}
-              <span className="dock-status-dot" />
-            </div>
-            <div className="dock-user-meta">
-              <strong className="dock-username">{userName}</strong>
-              <small className="dock-location-tag">In Office</small>
             </div>
           </div>
 
-          {/* Bottom Center: Floating Capsule Dock */}
-          <div className="dock-center-capsule">
-            <button
-              className={`dock-capsule-btn ${muted ? 'is-muted' : 'is-active'} ${isSpeaking ? 'is-speaking' : ''}`}
-              onClick={() => {
-                setMuted();
-                toast(muted ? 'Microphone unmuted' : 'Microphone muted');
-              }}
-              title="Toggle Microphone (M)"
-            >
-              <span className="dock-icon-circle">
-                {muted ? <MicOff size={16} /> : <Mic size={16} />}
-              </span>
-              <span className="dock-label">{muted ? 'Mic Off' : 'Mic On'}</span>
-            </button>
+          <section className="office-card" aria-label="Live office map">
+            <div className="map-topline"><div className="map-title"><span className="map-live-dot" /><span>LIVE OFFICE</span><span className="map-coordinates">/ FLOOR 01</span></div><div className="map-actions"><span className="map-legend"><i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall</span></div></div>
+            <div className="office-map-wrap">
+              <OfficeCanvas 
+                socket={socket}
+                officeState={officeState}
+                localUserId={userId}
+                onPeersChange={setPeers}
+                onPositionChange={handlePositionChange}
+                onFrameRateChange={handleFrameRateChange}
+                nearbyPeers={webrtcPeers}
+                speakingPeers={speakingPeers}
+                mutedPeers={mutedPeers}
+                isSpeaking={isSpeaking}
+                isMuted={muted}
+                peerAttenuations={peerAttenuations}
+                isDarkMode={isDarkMode}
+              />
+            </div>
+            <div className="map-bottomline"><span><Command size={13} /> Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</span><button className="map-reset" aria-label="Focus office map" title="Focus office map" onClick={() => document.querySelector('.office-canvas')?.focus()}><span className="focus-ring" /> Focus map</button></div>
+          </section>
 
-            <button
-              className={`dock-capsule-btn ${isDeafened ? 'is-muted' : ''}`}
-              onClick={toggleDeafen}
-              title="Toggle Headphones"
-            >
-              <span className="dock-icon-circle">
-                {isDeafened ? <VolumeX size={16} /> : <Headphones size={16} />}
-              </span>
-              <span className="dock-label">{isDeafened ? 'Deafened' : 'Headphones'}</span>
-            </button>
+          <div className="world-footnote"><Sparkles size={14} /><span>Sound changes with distance. Walls soften it; getting closer brings voices into focus.</span></div>
+        </section>
 
-            <button
-              className={`dock-capsule-btn ${isScreenSharing ? 'is-active' : ''}`}
-              onClick={handleToggleScreenShare}
-              title="Share Screen"
-            >
-              <span className="dock-icon-circle">
-                <Monitor size={16} />
-              </span>
-              <span className="dock-label">{isScreenSharing ? 'Sharing' : 'Share Screen'}</span>
-            </button>
+        <aside className="people-sidebar">
+          <div className="sidebar-heading"><div><div className="eyebrow muted-eyebrow">YOUR WORKSPACE</div><h2>In this office</h2></div></div>
+          <div className="sidebar-summary"><div className="summary-icon"><Users size={16} /></div><div><strong>{people.length} {people.length === 1 ? 'person' : 'people'} around</strong><span>{people.length > 1 ? 'Your office is coming to life' : 'You’re the first one in'}</span></div></div>
 
-            <div className="dock-emoji-container">
-              <button
-                className={`dock-capsule-btn ${showEmojiPicker ? 'is-active' : ''}`}
-                onClick={() => setShowEmojiPicker((prev) => !prev)}
-                title="Send Emoji Reaction"
-              >
-                <span className="dock-icon-circle">
-                  <Smile size={16} />
-                </span>
-                <span className="dock-label">Emojis</span>
-              </button>
+          {/* Futuristic Live Spatial Radar Telemetry */}
+          <div className="radar-hud-card">
+            <div className="radar-hud-topline">
+              <span className="radar-live-beacon" />
+              <strong>SPATIAL AUDIO RADAR</strong>
+              <span className="radar-status-badge">15Hz MESH</span>
+            </div>
+            {closestPeerInfo ? (
+              <div className="radar-telemetry-body">
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Nearest Teammate</span>
+                  <strong className="radar-peer-name">{closestPeerInfo.name}</strong>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Proximity Distance</span>
+                  <span className={closestPeerInfo.inRange ? 'radar-tag-in-range' : 'radar-tag-out'}>
+                    {closestPeerInfo.dist} px {closestPeerInfo.inRange ? '• IN RANGE' : '• DISTANT'}
+                  </span>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Acoustic Gain</span>
+                  <span className="radar-gain-val">
+                    {closestPeerInfo.volumePct}% {closestPeerInfo.att < 0.9 ? '(WALL ATTENUATED)' : '(CLEAR LOS)'}
+                  </span>
+                </div>
+                <div className="radar-metric-row">
+                  <span className="radar-metric-label">Binaural Stereo Pan</span>
+                  <span className="radar-pan-val">
+                    {closestPeerInfo.dx < -10 ? `◀ Left ${Math.abs(Math.round(closestPeerInfo.dx / 105 * 100))}%` : closestPeerInfo.dx > 10 ? `Right ${Math.round(closestPeerInfo.dx / 105 * 100)}% ▶` : 'Center 0°'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="radar-idle-note">
+                <Activity size={14} className="radar-idle-icon text-cyan-400" />
+                <span>Move near teammates to view real-time decibels, stereo pan, and acoustic wall muffling.</span>
+              </div>
+            )}
+          </div>
 
-              {/* Floating Emoji Picker Popover */}
-              <AnimatePresence>
-                {showEmojiPicker && (
-                  <motion.div
-                    className="dock-emoji-popover"
-                    initial={{ opacity: 0, y: 8, scale: 0.92 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.92 }}
-                    transition={{ duration: 0.16 }}
+          <label className="people-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a teammate" aria-label="Find a teammate" /></label>
+          <div className="people-section-label"><span>TEAMMATES</span><span>{people.length.toString().padStart(2, '0')}</span></div>
+          <div className="people-list">
+            {visiblePeople.map((person) => {
+              const getSidebarColor = (id) => {
+                if (person.self) return '#286b5e';
+                let hash = 0;
+                for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+                return colors[Math.abs(hash) % colors.length];
+              };
+              const isPersonSpeaking = person.self ? isSpeaking : Boolean(speakingPeers[person.id]);
+              const isPersonNearby = person.self ? false : Boolean(webrtcPeers[person.id]);
+              const isPersonMuted = person.self ? muted : Boolean(mutedPeers[person.id]);
+              const peerAtt = person.self ? 1.0 : (peerAttenuations[person.id] ?? 1.0);
+              const isMuffled = peerAtt < 0.9;
+
+              let statusText = 'HERE';
+              let statusColor = undefined;
+              if (isPersonSpeaking) {
+                statusText = isMuffled ? 'TALKING (WALL)' : 'TALKING';
+                statusColor = isMuffled ? '#7A8C82' : '#2FD38B';
+              } else if (person.self) {
+                statusText = 'YOU';
+              } else if (isPersonNearby) {
+                statusText = isMuffled ? 'NEARBY (WALL)' : 'NEARBY';
+                statusColor = isMuffled ? '#7A808A' : '#1FA896';
+              } else if (isPersonMuted) {
+                statusText = 'MUTED';
+                statusColor = '#8B8F96';
+              }
+
+              return (
+                <div className={`person-row ${isPersonSpeaking ? 'is-speaking-row' : ''}`} key={person.id}>
+                  <div className="person-avatar-wrap">
+                    <span className="person-avatar" style={{ background: getSidebarColor(person.id) }}>
+                      {person.self ? initials(userName) : initials(person.name)}
+                    </span>
+                    <i className={
+                      isPersonSpeaking
+                        ? "presence-dot is-speaking"
+                        : (person.self || isPersonNearby ? (isMuffled ? "presence-dot is-muffled" : "presence-dot is-nearby") : (isPersonMuted ? "presence-dot is-muted" : "presence-dot"))
+                    } />
+                  </div>
+                  <div className="person-info">
+                    <strong>{person.self ? userName : person.name}</strong>
+                    <span>
+                      {isPersonSpeaking ? (isMuffled ? 'Speaking behind wall' : 'Speaking right now') : (person.self ? (muted ? 'Muted' : 'Ready') : (isPersonNearby ? (isMuffled ? 'Muffled by wall' : 'Nearby') : (isPersonMuted ? 'Muted' : 'At their desk')))}
+                    </span>
+                  </div>
+                  <span
+                    className="person-status"
+                    style={{
+                      color: statusColor,
+                      fontWeight: isPersonSpeaking ? 600 : undefined,
+                    }}
                   >
-                    {['👍', '👋', '❤️', '🎉', '🔥', '☕', '👏', '🚀'].map((em) => (
-                      <button
-                        key={em}
-                        className="emoji-select-btn"
-                        onClick={() => triggerEmojiReaction(em)}
-                      >
-                        {em}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                    {statusText}
+                  </span>
+                </div>
+              );
+            })}
+            {visiblePeople.length === 0 && <div className="empty-search">No one by that name yet.</div>}
           </div>
-
-          {/* Bottom Right: People Nearby Cluster Card */}
-          <div
-            className="dock-nearby-card"
-            onClick={() => setIsWorkspaceMenuOpen(true)}
-            role="button"
-            tabIndex={0}
-            title="Open Nearby Teammates & Radar HUD"
-            onKeyDown={(e) => e.key === 'Enter' && setIsWorkspaceMenuOpen(true)}
-          >
-            <span className="dock-nearby-title">People Nearby</span>
-            <div className="dock-nearby-stack">
-              <span className="nearby-circle ring-1">AM</span>
-              <span className="nearby-circle ring-2">RO</span>
-              <span className="nearby-circle ring-3">SN</span>
-              <span className="nearby-plus-badge">
-                +{Math.max(3, Object.keys(webrtcPeers).length + 3)}
-              </span>
-            </div>
+          <div className="sidebar-spacer" />
+          <div className="quiet-card"><div className="quiet-card-icon"><Headphones size={17} /></div><div><strong>{micPermissionState === 'granted' ? 'Microphone ready' : 'Microphone off'}</strong><p>{micPermissionState === 'granted' ? 'Nearby voice responds to distance and walls.' : 'Allow microphone access to join nearby conversations.'}</p></div></div>
+          <div className="sidebar-footer">
+            <span><span className="live-dot" /> Your space is live</span>
+            <button className="text-button" type="button" onClick={() => setShowInviteModal(true)}>
+              Invite teammates <ArrowUpRight size={13} />
+            </button>
           </div>
-        </footer>
+        </aside>
       </div>
+
+      <motion.div
+        className="control-dock"
+        initial={{ y: 28, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 350, damping: 26 }}
+      >
+        {micPermissionState !== 'granted' ? (
+          <div className={`mic-access-banner ${micPermissionState === 'insecure_context' ? 'is-insecure' : ''}`} role="status">
+            <span className="mic-access-icon"><Mic size={17} /></span>
+            <span className="mic-access-copy">
+              <strong>{micPermissionState === 'insecure_context' ? 'A secure connection is needed' : 'Microphone access is off'}</strong>
+              <small>{micPermissionState === 'insecure_context' ? 'Open ProxiSpeak over HTTPS or localhost to use voice.' : 'Allow access to talk with teammates nearby.'}</small>
+            </span>
+            {micPermissionState !== 'insecure_context' && <button className="button button-primary mic-access-button" onClick={requestMic}>Enable microphone</button>}
+          </div>
+        ) : (
+          <>
+            <div className="dock-context"><span className="dock-avatar">{initials(userName)}</span><span><strong>Spatial Audio Mesh</strong><small>3D Panning Active</small></span></div>
+            <div className="dock-controls">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.96 }}
+                className={`mic-button ${muted ? 'is-muted' : ''} ${isSpeaking ? 'is-speaking-btn' : ''}`}
+                onClick={() => {
+                  setMuted();
+                  toast(muted ? 'Microphone unmuted' : 'Microphone muted', {
+                    description: muted ? 'Teammates within range can hear you.' : 'Your audio is now muted.',
+                  });
+                }}
+                aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+                title="Toggle Microphone (M)"
+              >
+                <span className="mic-icon-wrap">{muted ? <MicOff size={18} /> : <Mic size={18} />}</span>
+                <span>{muted ? 'Mic off' : (isSpeaking ? 'Broadcasting' : 'Mic on')}</span>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="button button-secondary dock-ping-btn"
+                onClick={handleTestPing}
+                title="Test 3D Spatial Audio Ping"
+                style={{ height: 38, padding: '0 10px', borderRadius: 10, fontSize: 10, gap: 5 }}
+              >
+                <Radio size={14} className="text-emerald-400" />
+                <span>Ping</span>
+              </motion.button>
+            </div>
+            <div className="dock-hint">
+              <span className={`sound-wave ${isSpeaking ? 'is-active' : ''}`}>
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.5, waveScale * 0.9)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.7, waveScale * 1.4)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.9, waveScale * 1.9)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(1.1, waveScale * 2.3)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(1.0, waveScale * 2.0)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.8, waveScale * 1.5)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.6, waveScale * 1.1)})` : undefined }} />
+                <i style={{ transform: isSpeaking ? `scaleY(${Math.max(0.5, waveScale * 0.8)})` : undefined }} />
+              </span>
+              <span>{isSpeaking ? <b className="voice-speaking-label">Speaking live…</b> : (muted ? <b>Microphone muted</b> : <>Voice horizon <b>active</b></>)}</span>
+            </div>
+          </>
+        )}
+      </motion.div>
 
       <Dialog open={showInviteModal} onOpenChange={setShowInviteModal}>
         <DialogContent className="max-w-[480px]">
