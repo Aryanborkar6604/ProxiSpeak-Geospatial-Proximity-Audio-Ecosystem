@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
 import './styles.css';
 
-const W = 1000, H = 660, RANGE = 65;
+const W = 1000, H = 660, RANGE = 70;
 const ICE_SERVERS = (() => {
   try { return JSON.parse(import.meta.env.VITE_ICE_SERVERS || '[{"urls":"stun:stun.l.google.com:19302"}]'); }
   catch { return [{ urls: 'stun:stun.l.google.com:19302' }]; }
@@ -181,7 +181,7 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       audioRef.current = { ...audioRef.current, stream };
       await Promise.all([...peersRef.current.values()].map(pc => { const sender = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio')?.sender; return sender?.replaceTrack(stream.getAudioTracks()[0]); }));
-      setMicOn(true); notify('Mic is on. Walk within 65 pixels of a teammate to chat.');
+      setMicOn(true); notify('Mic is on. Walk within 70 pixels of a teammate to chat.');
     } catch (err) { audioRef.current?.stream?.getTracks().forEach(track => track.stop()); notify(err?.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser settings.' : 'Could not start your microphone. Check that one is connected.'); }
   }
   function applyAccountData(result) {
