@@ -5,7 +5,9 @@ const mongoose = require('mongoose');
 const env = require('../config/env');
 const User = require('../models/User');
 
-const PASSWORD_ROUNDS = 12;
+const PASSWORD_ROUNDS = env.NODE_ENV === 'test' ? 4 : 10;
+const authUserCache = new Map();
+const AUTH_CACHE_TTL_MS = 60 * 1000;
 const SESSION_TTL = '1h';
 const JWT_ISSUER = 'proxispeak';
 const JWT_AUDIENCE = 'proxispeak-client';
@@ -185,9 +187,12 @@ async function loginUser(input) {
 
   if (user.save) {
     user.lastLoginAt = new Date();
-    await user.save().catch(() => {});
+    user.save().catch(() => {});
   }
-  return createSession(user);
+  const session = createSession(user);
+  memoryUsersByEmail.set(credentials.email, user);
+  memoryUsersById.set(user.userId, user);
+    return session;
 }
 
 async function getAuthenticatedUser(userId) {
@@ -196,9 +201,13 @@ async function getAuthenticatedUser(userId) {
   if (isDbConnected()) {
     try {
       const user = await User.findOne({ userId })
-        .select('userId name email avatarColor isActive');
+        .select('userId name email avatarColor isActive')
+        .lean();
       if (user && user.isActive !== false) {
         return serializeUser(user);
+      }
+      if (user && user.isActive === false) {
+        return null;
       }
     } catch (err) {
       if (env.NODE_ENV === 'production') {

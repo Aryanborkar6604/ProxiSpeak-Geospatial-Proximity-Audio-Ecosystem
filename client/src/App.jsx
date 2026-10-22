@@ -75,6 +75,18 @@ const getPublicAppOrigin = () => {
   }
 };
 
+async function parseJsonResponse(response) {
+  try {
+    const text = await response.text();
+    if (!text || !text.trim()) {
+      return { ok: response.ok, data: { error: response.ok ? '' : 'Backend server did not respond. Please try again.' } };
+    }
+    return { ok: response.ok, data: JSON.parse(text) };
+  } catch {
+    return { ok: false, data: { error: 'Could not connect to authentication services. Please verify the server is running.' } };
+  }
+}
+
 function App() {
   const reducedMotion = useReducedMotion();
   const [socket, setSocket] = useState(null);
@@ -231,10 +243,11 @@ function App() {
     const controller = new AbortController();
     runWithServerActivity(async () => {
       const response = await fetch(`${API_BASE_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
-      return { response, result: await response.json() };
+      const { data: result } = await parseJsonResponse(response);
+      return { response, result };
     })
       .then(({ response, result }) => {
         if (!response.ok || !result.user) {
@@ -348,7 +361,8 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        return { response, result: await response.json() };
+        const { data: result } = await parseJsonResponse(response);
+        return { response, result };
       });
       if (!response.ok || !result.token) throw new Error(result.error || 'We could not sign you in. Please try again.');
       sessionStorage.setItem('token', result.token);

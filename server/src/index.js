@@ -152,13 +152,31 @@ async function startServer() {
     res.json(meshTelemetry.getStats());
   });
 
+  // Ensure all API errors return structured JSON instead of HTML
+  app.use('/api', (err, req, res, next) => {
+    console.error('[API Error]', err);
+    if (!res.headersSent) {
+      res.status(err.status || err.statusCode || 500).json({
+        error: err.message || 'Internal server error',
+      });
+    }
+  });
+
+  // Ensure unhandled /api 404s return JSON
+  app.use('/api', (req, res) => {
+    if (!res.headersSent) {
+      res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
+    }
+  });
+
   // Initialize sockets
   socketHandler(io);
 
   startProximityService(io);
 
-  server.listen(env.PORT, '0.0.0.0', () => {
-    console.log(`Server listening on port ${env.PORT} (0.0.0.0)`);
+  const listenHost = process.env.HOST || (env.NODE_ENV === 'production' ? '0.0.0.0' : undefined);
+  server.listen(env.PORT, listenHost, () => {
+    console.log(`Server listening on port ${env.PORT} (${listenHost || 'dual-stack localhost/all'})`);
   });
 }
 
