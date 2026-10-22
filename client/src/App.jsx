@@ -251,12 +251,8 @@ export default function App() {
     async ({ fromId, candidate }) => {
       const peer = peersRef.current[fromId];
 
-      if (!peer) {
-        console.warn("ICE candidate arrived before peer exists");
-        return;
-      }
-
-      if (!peer.remoteDescription) {
+      // Candidates can arrive before the offer creates the peer connection.
+      if (!peer || !peer.remoteDescription) {
         pendingCandidatesRef.current[fromId] ||= [];
         pendingCandidatesRef.current[fromId].push(candidate);
         return;
@@ -291,8 +287,11 @@ export default function App() {
 
       updateRemoteUsers(others);
 
+      // A consistent ID rule makes only one side start each connection.
       Object.keys(others).forEach((id) => {
-        makeOffer(id);
+        if (socket.id.localeCompare(id) < 0) {
+          makeOffer(id);
+        }
       });
     });
 
@@ -301,6 +300,11 @@ export default function App() {
         ...remoteUsersRef.current,
         [user.id]: user
       });
+
+      // Existing and newly joined clients use the same initiator rule.
+      if (socket.id.localeCompare(user.id) < 0) {
+        makeOffer(user.id);
+      }
     });
 
     socket.on("user-moved", (user) => {
