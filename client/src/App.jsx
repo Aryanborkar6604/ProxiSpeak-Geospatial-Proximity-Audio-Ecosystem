@@ -405,11 +405,37 @@ export default function App() {
       micStreamRef.current = null;
       setMicEnabled(false);
 
-      setMicError(
-        error.name === "NotAllowedError"
-          ? "Microphone permission denied. Allow it in Chrome site settings."
-          : error.message || "Could not access the microphone."
-      );
+      let message = "Could not access the microphone. Please try again.";
+
+      if (
+        error.name === "NotAllowedError" ||
+        error.name === "PermissionDeniedError"
+      ) {
+        message =
+          "Microphone permission denied. Allow microphone access in Chrome site settings.";
+      } else if (
+        error.name === "NotFoundError" ||
+        error.name === "DevicesNotFoundError"
+      ) {
+        message = "No microphone found. Connect a microphone and try again.";
+      } else if (
+        error.name === "NotReadableError" ||
+        error.name === "TrackStartError"
+      ) {
+        message =
+          "The microphone may be in use by another application. Close it and try again.";
+      } else if (error.name === "OverconstrainedError") {
+        message =
+          "The microphone does not support the requested audio settings.";
+      } else if (error.name === "SecurityError") {
+        message =
+          "Microphone access is blocked by browser security settings.";
+      } else if (error.message) {
+        message = `Microphone error: ${error.message}`;
+      }
+
+      setMicError(message);
+      setAudioStatus("Microphone unavailable");
     }
   }
 
