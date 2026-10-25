@@ -501,6 +501,15 @@ export default function App() {
         )
       );
 
+  const proximityStatus =
+    distance === null
+      ? "No users nearby"
+      : distance >= AUDIO_RANGE
+        ? "Out of audio range"
+        : distance < 100
+          ? "Nearby"
+          : "Medium distance";
+
   return (
     <main
       className="app"
@@ -531,6 +540,9 @@ export default function App() {
         </p>
 
         <p>Proximity volume: {volumeLevel}%</p>
+        <p>
+          Proximity status: <strong>{proximityStatus}</strong>
+        </p>
 
         <div
           style={{
