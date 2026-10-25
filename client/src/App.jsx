@@ -527,8 +527,8 @@ export default function App() {
 
         <p>
           Connection:{" "}
-          <strong>
-            {connected ? "Connected" : "Connecting..."}
+          <strong style={{ color: connected ? "green" : "red" }}>
+            {connected ? "Connected" : "Disconnected"}
           </strong>
           {" · "}
           Other users: {Object.keys(remoteUsers).length}
@@ -576,7 +576,10 @@ export default function App() {
         </button>
 
         <p>
-          Microphone: {micEnabled ? "Enabled" : "Disabled"}
+          Microphone: {" "}
+          <strong style={{ color: micEnabled ? "green" : "red" }}>
+            {micEnabled ? "Enabled" : "Disabled"}
+          </strong>
         </p>
 
         <p>Audio status: {audioStatus}</p>
