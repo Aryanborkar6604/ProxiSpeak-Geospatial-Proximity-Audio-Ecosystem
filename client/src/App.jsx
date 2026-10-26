@@ -536,12 +536,30 @@ export default function App() {
 
         <p>
           Nearest user distance:{" "}
-          {distance === null ? "No other users" : `${distance} units`}
+          <strong>
+            {distance === null
+              ? "No other users connected"
+              : `${distance} coordinate units away`}
+          </strong>
         </p>
 
         <p>Proximity volume: {volumeLevel}%</p>
         <p>
-          Proximity status: <strong>{proximityStatus}</strong>
+          Proximity status:{" "}
+          <strong
+            style={{
+              color:
+                distance === null
+                  ? "#666"
+                  : distance >= AUDIO_RANGE
+                    ? "#dc3545"
+                    : distance < 100
+                      ? "#198754"
+                      : "#d97706",
+            }}
+          >
+            {proximityStatus}
+          </strong>
         </p>
 
         <div
