@@ -526,6 +526,85 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
   outline: none;
 }
 .dark-theme .office-canvas { border-color: rgba(199, 224, 198, .1); }
+.map-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.map-room-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 27px;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.room-pill-btn:hover {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(40, 107, 94, 0.15);
+}
+
+.dark-theme .room-pill-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #E2E8F0;
+}
+
+.dark-theme .room-pill-btn:hover {
+  background: rgba(0, 245, 155, 0.12);
+  border-color: rgba(0, 245, 155, 0.35);
+  color: #00F59B;
+  box-shadow: 0 0 12px rgba(0, 245, 155, 0.2);
+}
+
+.map-bottom-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.map-voice-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.dark-theme .map-voice-indicator {
+  color: #00F59B;
+}
+
+.pulse-beacon {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background: #22C55E;
+  box-shadow: 0 0 8px #22C55E;
+  animation: liveBeaconPulse 1.8s infinite;
+  display: inline-block;
+}
+
 .map-bottomline {
   min-height: 43px;
   justify-content: space-between;

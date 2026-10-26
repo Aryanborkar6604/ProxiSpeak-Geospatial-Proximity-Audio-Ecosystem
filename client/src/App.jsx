@@ -787,7 +787,59 @@ function App() {
           </div>
 
           <section className="office-card" aria-label="Live office map">
-            <div className="map-topline"><div className="map-title"><span className="map-live-dot" /><span>LIVE OFFICE</span><span className="map-coordinates">/ FLOOR 01</span></div><div className="map-actions"><span className="map-legend"><i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall</span></div></div>
+            <div className="map-topline">
+              <div className="map-title">
+                <span className="map-live-dot" />
+                <span>LIVE OFFICE</span>
+                <span className="map-coordinates">/ FLOOR 01</span>
+              </div>
+              <div className="map-actions">
+                <div className="map-room-pills">
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 175, y: 175 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to The Library');
+                    }}
+                    title="Jump to The Library"
+                  >
+                    📚 Library
+                  </button>
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 550, y: 185 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to Dev Studio');
+                    }}
+                    title="Jump to Dev Studio"
+                  >
+                    💻 Studio
+                  </button>
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 820, y: 480 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to The Lounge');
+                    }}
+                    title="Jump to The Lounge"
+                  >
+                    ☕ Lounge
+                  </button>
+                </div>
+                <span className="map-legend">
+                  <i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall
+                </span>
+              </div>
+            </div>
             <div className="office-map-wrap">
               <OfficeCanvas 
                 socket={socket}
@@ -805,7 +857,15 @@ function App() {
                 isDarkMode={isDarkMode}
               />
             </div>
-            <div className="map-bottomline"><span><Command size={13} /> Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</span><button className="map-reset" aria-label="Focus office map" title="Focus office map" onClick={() => document.querySelector('.office-canvas')?.focus()}><span className="focus-ring" /> Focus map</button></div>
+            <div className="map-bottomline">
+              <div className="map-bottom-info">
+                <span><Command size={13} /> Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys</span>
+                <span className="map-voice-indicator"><i className="pulse-beacon" /> 100px voice horizon active</span>
+              </div>
+              <button className="map-reset" aria-label="Focus office map" title="Focus office map" onClick={() => document.querySelector('.office-canvas')?.focus()}>
+                <span className="focus-ring" /> Focus map
+              </button>
+            </div>
           </section>
 
           <div className="world-footnote"><Sparkles size={14} /><span>Sound changes with distance. Walls soften it; getting closer brings voices into focus.</span></div>
