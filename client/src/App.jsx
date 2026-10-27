@@ -799,40 +799,79 @@ function App() {
                     type="button"
                     className="room-pill-btn"
                     onClick={() => {
-                      const pos = { x: 175, y: 175 };
+                      const pos = { x: 160, y: 145 };
                       if (socket) socket.emit('player:move', pos);
                       handlePositionChange(pos, peers);
-                      toast.info('Teleported to The Library');
+                      toast.info('Teleported to Reception Area');
                     }}
-                    title="Jump to The Library"
+                    title="Jump to Reception"
                   >
-                    📚 Library
+                    🛎️ Reception
                   </button>
                   <button
                     type="button"
                     className="room-pill-btn"
                     onClick={() => {
-                      const pos = { x: 550, y: 185 };
+                      const pos = { x: 500, y: 145 };
                       if (socket) socket.emit('player:move', pos);
                       handlePositionChange(pos, peers);
-                      toast.info('Teleported to Dev Studio');
+                      toast.info('Teleported to Meeting Room');
                     }}
-                    title="Jump to Dev Studio"
+                    title="Jump to Meeting Room"
                   >
-                    💻 Studio
+                    👥 Meeting
                   </button>
                   <button
                     type="button"
                     className="room-pill-btn"
                     onClick={() => {
-                      const pos = { x: 820, y: 480 };
+                      const pos = { x: 835, y: 145 };
                       if (socket) socket.emit('player:move', pos);
                       handlePositionChange(pos, peers);
-                      toast.info('Teleported to The Lounge');
+                      toast.info('Teleported to Manager Cabin');
                     }}
-                    title="Jump to The Lounge"
+                    title="Jump to Manager Cabin"
                   >
-                    ☕ Lounge
+                    💼 Manager
+                  </button>
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 500, y: 475 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to Workstations');
+                    }}
+                    title="Jump to Open Workstations"
+                  >
+                    💻 Workstations
+                  </button>
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 160, y: 555 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to HR Cabin');
+                    }}
+                    title="Jump to HR Cabin"
+                  >
+                    📋 HR Cabin
+                  </button>
+                  <button
+                    type="button"
+                    className="room-pill-btn"
+                    onClick={() => {
+                      const pos = { x: 835, y: 555 };
+                      if (socket) socket.emit('player:move', pos);
+                      handlePositionChange(pos, peers);
+                      toast.info('Teleported to Lunch Room');
+                    }}
+                    title="Jump to Lunch Room"
+                  >
+                    ☕ Lunch Room
                   </button>
                 </div>
                 <span className="map-legend">

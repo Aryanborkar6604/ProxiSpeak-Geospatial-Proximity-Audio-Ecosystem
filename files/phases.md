@@ -106,6 +106,7 @@ This phase plan follows the official Infotact internship schedule exactly (Week 
 
 
 
+
 - [ ] `StereoPannerNode` wired per peer; pan computed from relative X position (`trd.md` §6).
 - [ ] Obstacle-aware visual treatment on presence rings (`design.md` §8).
 - [ ] Final Canvas performance pass: confirm steady 60 FPS with 50 rendered avatars (`rules.md` R-26).
