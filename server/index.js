@@ -6,6 +6,8 @@ import { Server } from 'socket.io';
 import { MongoClient } from 'mongodb';
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const scrypt = promisify(scryptCallback);
 
@@ -20,10 +22,12 @@ const EARSHOT = 70;
 // Project office pixels to a small, valid GeoJSON patch where 1 pixel ≈ 1 meter.
 const METERS_PER_DEGREE = 111_320;
 const users = new Map();
-const demoAccounts = new Map();
 const sessions = new Map();
 const accountSockets = new Map();
 let people, accounts;
+const localAccounts = new Map();
+const localAccountFile = path.join(process.cwd(), '.data', 'accounts.json');
+let accountWriteQueue = Promise.resolve();
 
 function parseCookies(header = '') {
   return Object.fromEntries(header.split(';').map(part => part.trim()).filter(Boolean).map(part => {
@@ -36,10 +40,24 @@ function setSessionCookie(res, token) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader('Set-Cookie', `proxi_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${secure}`);
 }
-async function findAccount(email) { return accounts ? accounts.findOne({ email }) : demoAccounts.get(email); }
-async function findAccountById(id) { return accounts ? accounts.findOne({ _id: id }) : [...demoAccounts.values()].find(account => String(account._id ?? account.id) === id); }
+async function persistLocalAccounts() {
+  accountWriteQueue = accountWriteQueue.then(async () => {
+    await mkdir(path.dirname(localAccountFile), { recursive: true });
+    const tempFile = `${localAccountFile}.tmp`;
+    await writeFile(tempFile, JSON.stringify([...localAccounts.values()], null, 2), { mode: 0o600 });
+    await rename(tempFile, localAccountFile);
+  });
+  return accountWriteQueue;
+}
+async function findAccount(email) { return accounts ? accounts.findOne({ email }) : localAccounts.get(email); }
+async function findAccountById(id) { return accounts ? accounts.findOne({ _id: id }) : [...localAccounts.values()].find(account => String(account._id ?? account.id) === id); }
 async function saveAccount(account) {
-  if (accounts) await accounts.insertOne(account); else demoAccounts.set(account.email, account);
+  if (accounts) await accounts.insertOne(account);
+  else { localAccounts.set(account.email, account); await persistLocalAccounts(); }
+}
+async function updateAccount(account, updates) {
+  if (accounts) await accounts.updateOne({ _id: account._id }, { $set: updates });
+  else { Object.assign(account, updates); localAccounts.set(account.email, account); await persistLocalAccounts(); }
 }
 async function passwordMatches(password, account) {
   const actual = await scrypt(password, Buffer.from(account.passwordSalt, 'hex'), 64);
@@ -72,7 +90,7 @@ async function publishPresence() {
     } catch (err) { console.error('Presence query failed:', err.message); }
   }
 }
-app.get('/api/health', (_, res) => res.json({ ok: true, officeId: OFFICE_ID, connected: users.size, earshotPixels: EARSHOT, persistence: people ? 'mongodb' : 'memory' }));
+app.get('/api/health', (_, res) => res.json({ ok: true, officeId: OFFICE_ID, connected: users.size, earshotPixels: EARSHOT, persistence: accounts ? 'mongodb' : 'local-file' }));
 app.use('/api/auth', (_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.post('/api/auth/register', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
@@ -150,8 +168,7 @@ app.patch('/api/auth/profile', async (req, res) => {
     const account = await findAccount(session.email);
     if (!account) return res.status(401).json({ error: 'Your account could not be found. Please log in again.' });
     const updates = { displayName: name, phoneNumber, dateOfBirth, avatarDataUrl: avatarUrl, avatarUpdatedAt: Date.now() };
-    if (accounts) await accounts.updateOne({ _id: account._id }, { $set: updates });
-    else Object.assign(account, updates);
+    await updateAccount(account, updates);
     const updated = { ...account, ...updates };
     const publicUser = publicAccount(updated);
     sessions.set(token, publicUser);
@@ -203,7 +220,8 @@ io.on('connection', socket => {
     if (typeof name === 'string') user.name = name.slice(0, 32);
     if (typeof role === 'string') user.role = role.slice(0, 48);
     account.name = user.name;
-    if (accounts) await accounts.updateOne({ _id: account.id }, { $set: { displayName: user.name } });
+    const savedAccount = await findAccount(user.email);
+    if (savedAccount) await updateAccount(savedAccount, { displayName: user.name });
     await saveUser(user); io.emit('profile-updated', user);
   });
   socket.on('speaking', ({ speaking }) => { user.speaking = Boolean(speaking); io.emit('speaking', { id: user.id, speaking: user.speaking }); });
@@ -217,6 +235,15 @@ io.on('connection', socket => {
 });
 
 const mongoUri = process.env.MONGODB_URI;
+async function loadLocalAccounts() {
+  try {
+    const saved = JSON.parse(await readFile(localAccountFile, 'utf8'));
+    if (!Array.isArray(saved)) throw new Error('Account store must contain a JSON array');
+    for (const account of saved) if (account?.email && account?.passwordHash && account?.passwordSalt) localAccounts.set(account.email, account);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw new Error(`Could not load local accounts: ${err.message}`);
+  }
+}
 async function connectMongo() {
   if (!mongoUri) return;
   const client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5000 });
@@ -226,9 +253,19 @@ async function connectMongo() {
     const nextPeople = db.collection('people'), nextAccounts = db.collection('accounts');
     await nextPeople.createIndex({ location: '2dsphere' }); await nextPeople.createIndex({ officeId: 1 });
     await nextAccounts.createIndex({ email: 1 }, { unique: true });
+    if (localAccounts.size) await nextAccounts.bulkWrite([...localAccounts.values()].map(account => ({ updateOne: { filter: { email: account.email }, update: { $setOnInsert: account }, upsert: true } })));
     people = nextPeople; accounts = nextAccounts;
     console.log('MongoDB connected; geospatial indexes ready');
   } catch (err) { await client.close().catch(() => {}); console.warn(`MongoDB unavailable; using live in-memory presence (${err.message})`); }
 }
-httpServer.listen(PORT, () => console.log(`ProxiSpeak server listening on http://localhost:${PORT} — ${OFFICE_ID}`));
-connectMongo();
+async function startServer() {
+  try {
+    await loadLocalAccounts();
+    await connectMongo();
+    httpServer.listen(PORT, () => console.log(`ProxiSpeak server listening on http://localhost:${PORT} — ${OFFICE_ID} (${accounts ? 'MongoDB' : 'local account file'} persistence)`));
+  } catch (err) {
+    console.error(err.message);
+    process.exitCode = 1;
+  }
+}
+startServer();

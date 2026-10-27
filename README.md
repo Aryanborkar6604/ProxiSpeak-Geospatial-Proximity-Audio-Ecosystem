@@ -5,7 +5,7 @@ A single shared virtual office for the Infotact team. The React app draws an ove
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts, profiles, sessions, and presence are held in memory and are lost when the server restarts. Profile photos are resized before storage; phone numbers and dates of birth are returned only to the signed-in account, not shared with office peers.
+2. Copy `.env.example` to `.env`. MongoDB is optional for a local demo; without it, accounts and profiles are stored in the private `.data/accounts.json` file, while sessions and presence remain in memory. Passwords are stored as salted scrypt hashes, never as plaintext. Profile photos are resized before storage; phone numbers and dates of birth are returned only to the signed-in account, not shared with office peers.
 3. Run `npm install`, then `npm run dev`.
 4. Open `http://localhost:5173` in two browser profiles or windows, create/sign in to a different account in each, and allow microphone access.
 5. Click **Enable sound** in both browsers, click **Say hello** to enable a microphone, and move the avatars within 70 pixels of each other.
@@ -14,7 +14,7 @@ Microphone access requires `localhost` or HTTPS. The sample map occupants are il
 
 ## MongoDB
 
-When configured, the server stores accounts and people, creates a GeoJSON `2dsphere` index, uses `$near` to filter earshot membership, and uses `$geoWithin`/`$centerSphere` for the cluster endpoint. Office pixel coordinates are projected into a small GeoJSON range at approximately one meter per pixel. All participants share the `OFFICE_ID` configured in `.env`.
+When configured, the server stores accounts and people in MongoDB, creates a GeoJSON `2dsphere` index, uses `$near` to filter earshot membership, and uses `$geoWithin`/`$centerSphere` for the cluster endpoint. Existing local-file accounts are copied into MongoDB when it connects. Office pixel coordinates are projected into a small GeoJSON range at approximately one meter per pixel. All participants share the `OFFICE_ID` configured in `.env`.
 
 ## Project layout
 
