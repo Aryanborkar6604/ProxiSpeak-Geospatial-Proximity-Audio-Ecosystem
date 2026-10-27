@@ -491,6 +491,11 @@ export default function App() {
     ? Math.round(Math.min(...distances))
     : null;
 
+  // Count remote users close enough for proximity audio.
+  const usersInAudioRange = Object.values(remoteUsers).filter(
+    (user) => getDistance(user) < AUDIO_RANGE
+  ).length;
+
   const volumeLevel = distance === null
     ? 0
     : Math.max(
@@ -532,6 +537,8 @@ export default function App() {
           </strong>
           {" · "}
           Other users: {Object.keys(remoteUsers).length}
+          {" · "}
+          Users in audio range: {usersInAudioRange}
         </p>
 
         <p>
