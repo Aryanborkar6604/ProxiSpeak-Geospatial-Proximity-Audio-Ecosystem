@@ -36,9 +36,10 @@ function parseCookies(header = '') {
 }
 function publicAccount(account) { const id = String(account._id ?? account.id); return { id, email: account.email, name: account.displayName ?? account.name, avatarUrl: account.avatarDataUrl ? `/api/avatars/${id}?v=${account.avatarUpdatedAt ?? 0}` : null }; }
 function privateProfile(account) { return { phoneNumber: account.phoneNumber ?? '', dateOfBirth: account.dateOfBirth ?? '' }; }
-function setSessionCookie(res, token) {
+function setSessionCookie(res, token, remember = false) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `proxi_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${secure}`);
+  const maxAge = remember ? '; Max-Age=604800' : '';
+  res.setHeader('Set-Cookie', `proxi_session=${token}; HttpOnly; SameSite=Lax; Path=/${maxAge}${secure}`);
 }
 async function persistLocalAccounts() {
   accountWriteQueue = accountWriteQueue.then(async () => {
@@ -117,12 +118,13 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const remember = req.body?.remember === true;
   if (!email || !password || password.length > 128) return res.status(400).json({ error: 'Enter your email and password.' });
   try {
     const account = await findAccount(email);
     if (!account || !(await passwordMatches(password, account))) return res.status(401).json({ error: 'That email and password do not match.' });
     const token = randomBytes(32).toString('hex'); const profile = publicAccount(account);
-    sessions.set(token, profile); setSessionCookie(res, token);
+    sessions.set(token, profile); setSessionCookie(res, token, remember);
     res.json({ user: profile, profile: privateProfile(account) });
   } catch (err) {
     console.error('Login failed:', err.message);
