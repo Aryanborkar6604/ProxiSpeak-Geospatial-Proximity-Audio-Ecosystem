@@ -486,10 +486,23 @@ export default function App() {
     socketRef.current?.emit("move", next);
   }
 
-  const distances = Object.values(remoteUsers).map(getDistance);
+  const remoteUserList = Object.values(remoteUsers);
+  const distances = remoteUserList.map(getDistance);
   const distance = distances.length
     ? Math.round(Math.min(...distances))
     : null;
+
+  // Show the direction of the nearest avatar relative to your position.
+  const nearestUser = remoteUserList.reduce((nearest, user) => {
+    if (!nearest || getDistance(user) < getDistance(nearest)) return user;
+    return nearest;
+  }, null);
+
+  const nearestUserDirection = !nearestUser
+    ? "No other users"
+    : Math.abs(nearestUser.x - position.x) > Math.abs(nearestUser.y - position.y)
+      ? (nearestUser.x < position.x ? "Left" : "Right")
+      : (nearestUser.y < position.y ? "Above" : "Below");
 
   // Count remote users close enough for proximity audio.
   const usersInAudioRange = Object.values(remoteUsers).filter(
@@ -548,6 +561,10 @@ export default function App() {
               ? "No other users connected"
               : `${distance} coordinate units away`}
           </strong>
+        </p>
+
+        <p>
+          Nearest user direction: <strong>{nearestUserDirection}</strong>
         </p>
 
         <p>Proximity volume: {volumeLevel}%</p>
