@@ -102,13 +102,17 @@ function App() {
   const [authChecking, setAuthChecking] = useState(() => Boolean(sessionStorage.getItem('token')));
   const [showPassword, setShowPassword] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : false));
-  const [currentOfficeId] = useState(() => {
+  const [currentOfficeId, setCurrentOfficeId] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       return params.get('office') || 'main-office';
     }
     return 'main-office';
   });
+
+  const isFloor2 = currentOfficeId.endsWith('-floor-2');
+  const currentFloor = isFloor2 ? 2 : 1;
+  const baseOfficeId = currentOfficeId.replace(/-floor-2$/, '');
   const [officeState, setOfficeState] = useState(() => {
     const cached = deviceCache.loadOffice(currentOfficeId);
     if (cached) return cached;
@@ -436,6 +440,67 @@ function App() {
     deviceCache.savePosition(currentOfficeId, userId, myPos);
     updateSpatialAudio(myPos, curPeers, officeState?.hearingRadiusPx || 100);
   }, [currentOfficeId, userId, updateSpatialAudio, officeState?.hearingRadiusPx]);
+
+  const playElevatorChime = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+      const now = audioCtx.currentTime;
+      
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(622.25, now); // Eb5
+      gain1.gain.setValueAtTime(0.18, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.7);
+
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(466.16, now + 0.16); // Bb4
+      gain2.gain.setValueAtTime(0.001, now);
+      gain2.gain.setValueAtTime(0.20, now + 0.16);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.start(now + 0.16);
+      osc2.stop(now + 1.2);
+    } catch {
+      // Audio context errors safely ignored
+    }
+  }, []);
+
+  const handleSwitchFloor = useCallback((targetFloor) => {
+    if (targetFloor === currentFloor) return;
+    playElevatorChime();
+    const nextOfficeId = targetFloor === 2 ? `${baseOfficeId}-floor-2` : baseOfficeId;
+    setCurrentOfficeId(nextOfficeId);
+    
+    // Spawn right outside the elevator doors on the destination floor
+    const spawnPos = targetFloor === 2 ? { x: 750, y: 550 } : { x: 750, y: 150 };
+    setLocalCoords(spawnPos);
+    deviceCache.savePosition(nextOfficeId, userId, spawnPos);
+    
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('office', nextOfficeId);
+      window.history.replaceState({}, '', url.toString());
+    }
+    
+    toast.success(`🛗 Arrived at Floor 0${targetFloor}`, {
+      description: targetFloor === 2 
+        ? 'Executive & Leadership Suite (HR Cabin, Manager Suite, Strategy Boardroom)'
+        : 'The Commons & Operations (Reception, Meeting Suite, Workstations, Lunch Room)',
+    });
+  }, [currentFloor, baseOfficeId, userId, playElevatorChime]);
 
   const closestPeerInfo = useMemo(() => {
     const peerEntries = Object.entries(peers);
@@ -766,9 +831,30 @@ function App() {
           <div className="world-heading-compact">
             <div className="heading-compact-left">
               <span className="heading-compact-title">{officeName}</span>
-              <span className="heading-compact-floor">FLOOR 01</span>
+              <div className="floor-switcher-bar" role="tablist" aria-label="Office Floors">
+                <button
+                  type="button"
+                  className={`floor-tab-btn ${currentFloor === 1 ? 'active' : ''}`}
+                  onClick={() => handleSwitchFloor(1)}
+                  title="Switch to Floor 01: The Commons"
+                >
+                  <span className="floor-tab-icon">🏢</span>
+                  <span className="floor-tab-name">FLOOR 01</span>
+                  <span className="floor-tab-tag">Commons</span>
+                </button>
+                <button
+                  type="button"
+                  className={`floor-tab-btn ${currentFloor === 2 ? 'active' : ''}`}
+                  onClick={() => handleSwitchFloor(2)}
+                  title="Switch to Floor 02: Executive Suite"
+                >
+                  <span className="floor-tab-icon">💼</span>
+                  <span className="floor-tab-name">FLOOR 02</span>
+                  <span className="floor-tab-tag">Executive & HR</span>
+                </button>
+              </div>
               <span className="heading-compact-dot">·</span>
-              <span className="heading-compact-hint">Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to talk within 100px</span>
+              <span className="heading-compact-hint">Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · Ride elevator with <kbd>E</kbd></span>
             </div>
             <div className="heading-compact-right">
               <span className="people-count">
@@ -791,88 +877,173 @@ function App() {
               <div className="map-title">
                 <span className="map-live-dot" />
                 <span>LIVE OFFICE</span>
-                <span className="map-coordinates">/ FLOOR 01</span>
+                <span className="map-coordinates">/ FLOOR 0{currentFloor}</span>
               </div>
               <div className="map-actions">
                 <div className="map-room-pills">
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 160, y: 145 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Reception Area');
-                    }}
-                    title="Jump to Reception"
-                  >
-                    🛎️ Reception
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 500, y: 145 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Meeting Room');
-                    }}
-                    title="Jump to Meeting Room"
-                  >
-                    👥 Meeting
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 835, y: 145 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Manager Cabin');
-                    }}
-                    title="Jump to Manager Cabin"
-                  >
-                    💼 Manager
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 500, y: 475 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Workstations');
-                    }}
-                    title="Jump to Open Workstations"
-                  >
-                    💻 Workstations
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 160, y: 555 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to HR Cabin');
-                    }}
-                    title="Jump to HR Cabin"
-                  >
-                    📋 HR Cabin
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 835, y: 555 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Lunch Room');
-                    }}
-                    title="Jump to Lunch Room"
-                  >
-                    ☕ Lunch Room
-                  </button>
+                  {currentFloor === 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 160, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Reception Area');
+                        }}
+                        title="Jump to Reception"
+                      >
+                        🛎️ Reception
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 500, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Meeting Room');
+                        }}
+                        title="Jump to Meeting Room"
+                      >
+                        👥 Meeting
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn highlight-pill"
+                        onClick={() => {
+                          const pos = { x: 835, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Walked to Elevator & Focus Booths');
+                        }}
+                        title="Jump to Elevator Lobby & Focus Booths"
+                      >
+                        🛗 Elevator & Focus
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 500, y: 475 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Workstations');
+                        }}
+                        title="Jump to Open Workstations"
+                      >
+                        💻 Workstations
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 160, y: 555 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Wellness & Library');
+                        }}
+                        title="Jump to Wellness Library"
+                      >
+                        🌿 Wellness
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 835, y: 555 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Lunch Room');
+                        }}
+                        title="Jump to Lunch Room"
+                      >
+                        ☕ Lunch Room
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 160, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to HR Cabin');
+                        }}
+                        title="Jump to HR Cabin"
+                      >
+                        📋 HR Cabin
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 500, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Strategy Boardroom');
+                        }}
+                        title="Jump to Strategy Boardroom"
+                      >
+                        🤝 Boardroom
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 835, y: 145 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Manager Cabin');
+                        }}
+                        title="Jump to Manager Cabin"
+                      >
+                        💼 Manager
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 500, y: 475 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Leadership Workstations');
+                        }}
+                        title="Jump to Leadership Workstations"
+                      >
+                        💻 Leadership
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn"
+                        onClick={() => {
+                          const pos = { x: 160, y: 555 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Teleported to Executive Lounge');
+                        }}
+                        title="Jump to Executive Lounge"
+                      >
+                        🛋️ Exec Lounge
+                      </button>
+                      <button
+                        type="button"
+                        className="room-pill-btn highlight-pill"
+                        onClick={() => {
+                          const pos = { x: 835, y: 555 };
+                          if (socket) socket.emit('player:move', pos);
+                          handlePositionChange(pos, peers);
+                          toast.info('Walked to Elevator & Archives');
+                        }}
+                        title="Jump to Elevator Lobby & Archives"
+                      >
+                        🛗 Elevator
+                      </button>
+                    </>
+                  )}
                 </div>
                 <span className="map-legend">
                   <i /> You <i className="legend-nearby" /> Nearby <i className="legend-wall" /> Wall
@@ -894,6 +1065,8 @@ function App() {
                 isMuted={muted}
                 peerAttenuations={peerAttenuations}
                 isDarkMode={isDarkMode}
+                currentFloor={currentFloor}
+                onSwitchFloor={handleSwitchFloor}
               />
             </div>
             <div className="map-bottomline">

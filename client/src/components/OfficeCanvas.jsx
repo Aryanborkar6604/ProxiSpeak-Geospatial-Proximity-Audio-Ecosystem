@@ -20,10 +20,17 @@ export default function OfficeCanvas({
   isMuted = false,
   peerAttenuations = {},
   isDarkMode = true,
+  currentFloor = 1,
+  onSwitchFloor,
 }) {
   const canvasRef = useRef(null);
   const peersRef = useRef({});
   const interpolatedPeers = useRef({}); // 60 FPS smooth linear interpolation coordinates
+  const currentFloorRef = useRef(currentFloor);
+  const onSwitchFloorRef = useRef(onSwitchFloor);
+  currentFloorRef.current = currentFloor;
+  onSwitchFloorRef.current = onSwitchFloor;
+
   const localPos = useRef(
     deviceCache.loadPosition(officeState?.officeId, localUserId) || { x: 175, y: 335 }
   );
@@ -235,13 +242,22 @@ export default function OfficeCanvas({
       ctx.setLineDash([]);
       ctx.restore();
 
-      // 3. Architectural Room Floors & Customized Furniture
-      drawReceptionZone(ctx, 35, 35, 260, 220, dark);
-      drawMeetingZone(ctx, 325, 35, 350, 220, dark);
-      drawManagerZone(ctx, 705, 35, 260, 220, dark);
-      drawHRZone(ctx, 35, 445, 260, 220, dark);
-      drawWorkstationsZone(ctx, 325, 285, 350, 380, dark);
-      drawLunchZone(ctx, 705, 445, 260, 220, dark);
+      // 3. Architectural Room Floors & Customized Furniture (Floor-Specific Layout)
+      if (currentFloorRef.current === 2) {
+        drawHRZone(ctx, 35, 35, 260, 220, dark);
+        drawStrategyBoardroomZone(ctx, 325, 35, 350, 220, dark);
+        drawManagerZone(ctx, 705, 35, 260, 220, dark);
+        drawLeadershipWorkstationsZone(ctx, 325, 285, 350, 380, dark);
+        drawExecutiveLoungeZone(ctx, 35, 445, 260, 220, dark);
+        drawElevatorAndArchivesZone(ctx, 705, 445, 260, 220, dark, 2);
+      } else {
+        drawReceptionZone(ctx, 35, 35, 260, 220, dark);
+        drawMeetingZone(ctx, 325, 35, 350, 220, dark);
+        drawElevatorAndFocusZone(ctx, 705, 35, 260, 220, dark, 1);
+        drawWorkstationsZone(ctx, 325, 285, 350, 380, dark);
+        drawWellnessZone(ctx, 35, 445, 260, 220, dark);
+        drawLunchZone(ctx, 705, 445, 260, 220, dark);
+      }
 
       // 4. Sound-Blocking Laser Acoustic Walls (Rule R-20)
       const obstacles = officeState?.obstacles || [];
@@ -424,6 +440,13 @@ export default function OfficeCanvas({
         drawAvatar(ctx, interp.x, interp.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
       });
 
+      // 11. Interactive Elevator Proximity Callout
+      const elevCoords = currentFloorRef.current === 2 ? { x: 835, y: 525 } : { x: 835, y: 95 };
+      const distToElev = Math.hypot(localX - elevCoords.x, localY - elevCoords.y);
+      if (distToElev < 75) {
+        drawElevatorProximityBadge(ctx, elevCoords.x, elevCoords.y - 45, currentFloorRef.current === 2 ? 1 : 2, dark);
+      }
+
       ctx.restore();
       frame = requestAnimationFrame(draw);
     };
@@ -432,9 +455,18 @@ export default function OfficeCanvas({
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   }, [officeState]);
 
-  // Keyboard navigation with particle spawning
+  // Keyboard navigation with particle spawning & elevator interaction
   useEffect(() => {
     const move = (event) => {
+      if (event.key.toLowerCase() === 'e' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) {
+        const elevPos = currentFloorRef.current === 2 ? { x: 835, y: 525 } : { x: 835, y: 95 };
+        if (Math.hypot(localPos.current.x - elevPos.x, localPos.current.y - elevPos.y) < 85) {
+          event.preventDefault();
+          onSwitchFloorRef.current?.(currentFloorRef.current === 2 ? 1 : 2);
+          return;
+        }
+      }
+
       const keys = { ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1], ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0] };
       const direction = keys[event.key] || keys[event.key.toLowerCase()];
       if (!direction || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
@@ -477,6 +509,14 @@ export default function OfficeCanvas({
     const x = (event.clientX - rect.left) / rect.width * officeState.width;
     const y = (event.clientY - rect.top) / rect.height * officeState.height;
     
+    // Elevator click interaction
+    const elevTargetFloor = currentFloorRef.current === 2 ? 1 : 2;
+    const elevPos = currentFloorRef.current === 2 ? { x: 835, y: 525 } : { x: 835, y: 95 };
+    if (Math.hypot(x - elevPos.x, y - elevPos.y) < 65) {
+      onSwitchFloorRef.current?.(elevTargetFloor);
+      return;
+    }
+
     // Spawn click ripple
     moveParticles.current.push({
       x,
@@ -1912,6 +1952,661 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking, isNearby, isMu
     ctx.font = '600 8px "DM Sans", sans-serif';
     ctx.fillText(isMuffled ? `${label} ▤` : label, x, y + 31);
   }
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// 7. MULTI-FLOOR ARCHITECTURE: ELEVATOR & REALISTIC SUITES
+// -------------------------------------------------------------
+
+// High-Tech Elevator Bank (Brushed Stainless Steel, LED Floor Display, Call Panel)
+function drawElevatorBank(ctx, x, y, isDark, currentFloorNum, targetFloorNum) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.65)' : 'rgba(0, 0, 0, 0.15)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
+
+  // Outer Stainless Steel Elevator Enclosure Frame
+  ctx.fillStyle = isDark ? '#1F2937' : '#94A3B8';
+  roundedRect(ctx, x, y, 78, 54, 6);
+  ctx.fill();
+
+  // Outer Trim Rim
+  ctx.strokeStyle = isDark ? '#374151' : '#CBD5E1';
+  ctx.lineWidth = 1.5;
+  roundedRect(ctx, x, y, 78, 54, 6);
+  ctx.stroke();
+
+  ctx.shadowColor = 'transparent';
+
+  // Double Sliding Stainless Doors (Brushed Metal)
+  const doorW = 33;
+  const doorH = 38;
+  const doorY = y + 12;
+
+  // Left door
+  const leftDoorGrad = ctx.createLinearGradient(x + 4, doorY, x + 4 + doorW, doorY);
+  leftDoorGrad.addColorStop(0, isDark ? '#374151' : '#E2E8F0');
+  leftDoorGrad.addColorStop(0.5, isDark ? '#4B5563' : '#F1F5F9');
+  leftDoorGrad.addColorStop(1, isDark ? '#1F2937' : '#CBD5E1');
+  ctx.fillStyle = leftDoorGrad;
+  roundedRect(ctx, x + 4, doorY, doorW, doorH, 2);
+  ctx.fill();
+
+  // Right door
+  const rightDoorGrad = ctx.createLinearGradient(x + 41, doorY, x + 41 + doorW, doorY);
+  rightDoorGrad.addColorStop(0, isDark ? '#1F2937' : '#CBD5E1');
+  rightDoorGrad.addColorStop(0.5, isDark ? '#4B5563' : '#F1F5F9');
+  rightDoorGrad.addColorStop(1, isDark ? '#374151' : '#E2E8F0');
+  ctx.fillStyle = rightDoorGrad;
+  roundedRect(ctx, x + 41, doorY, doorW, doorH, 2);
+  ctx.fill();
+
+  // Center vertical seam between sliding doors
+  ctx.fillStyle = isDark ? '#111827' : '#64748B';
+  ctx.fillRect(x + 38, doorY, 2, doorH);
+
+  // Brushed vertical texture lines
+  ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 19, doorY + 4); ctx.lineTo(x + 19, doorY + doorH - 4);
+  ctx.moveTo(x + 58, doorY + 4); ctx.lineTo(x + 58, doorY + doorH - 4);
+  ctx.stroke();
+
+  // Overhead Backlit Digital Floor Display Panel
+  ctx.fillStyle = '#0F172A';
+  roundedRect(ctx, x + 21, y + 3, 36, 7, 2);
+  ctx.fill();
+  ctx.strokeStyle = '#38BDF8';
+  ctx.lineWidth = 0.8;
+  roundedRect(ctx, x + 21, y + 3, 36, 7, 2);
+  ctx.stroke();
+
+  // Glowing Amber/Cyan Floor LED Display text
+  ctx.fillStyle = '#F59E0B';
+  ctx.font = '700 5.5px "JetBrains Mono", monospace, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const arrow = currentFloorNum === 1 ? '▲' : '▼';
+  ctx.fillText(`${arrow} 0${currentFloorNum}`, x + 39, y + 6.5);
+
+  // Call Button Panel on the right
+  ctx.fillStyle = isDark ? '#111827' : '#E2E8F0';
+  roundedRect(ctx, x + 81, y + 22, 6, 12, 1.5);
+  ctx.fill();
+  ctx.fillStyle = '#10B981'; // Green active illuminated call button
+  ctx.beginPath();
+  ctx.arc(x + 84, y + 28, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Aluminum Ribbed Threshold Plate at entrance
+  ctx.fillStyle = isDark ? '#2D3748' : '#D1D5DB';
+  roundedRect(ctx, x + 6, y + 51, 66, 4, 1);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Soundproof Solo Focus / Phone Booth
+function drawPhoneBooth(ctx, x, y, isDark, label) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.1)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+
+  // Soundproof Outer Shell
+  ctx.fillStyle = isDark ? '#1F2937' : '#E2E8F0';
+  roundedRect(ctx, x, y, 44, 50, 6);
+  ctx.fill();
+
+  // Glass door with subtle blue sheen
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(56, 189, 248, 0.25)';
+  ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.6)';
+  ctx.lineWidth = 1;
+  roundedRect(ctx, x + 3, y + 3, 38, 44, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Internal Acoustic Felt Wall Lining
+  ctx.fillStyle = isDark ? '#111827' : '#94A3B8';
+  roundedRect(ctx, x + 5, y + 5, 34, 12, 2);
+  ctx.fill();
+
+  // Oak Laptop Shelf Desk
+  ctx.fillStyle = isDark ? '#3D2A1D' : '#D7BA9D';
+  roundedRect(ctx, x + 6, y + 21, 32, 10, 2);
+  ctx.fill();
+
+  // Laptop on shelf
+  ctx.fillStyle = '#38BDF8';
+  roundedRect(ctx, x + 16, y + 23, 12, 6, 1);
+  ctx.fill();
+
+  // Upholstered Stool
+  ctx.fillStyle = isDark ? '#475569' : '#64748B';
+  ctx.beginPath();
+  ctx.arc(x + 22, y + 38, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // "IN USE" / "AVAILABLE" LED Indicator on Booth
+  ctx.fillStyle = '#10B981';
+  ctx.beginPath();
+  ctx.arc(x + 36, y + 8, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Label text
+  ctx.fillStyle = isDark ? '#9CA3AF' : '#475569';
+  ctx.font = '700 5px "JetBrains Mono", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x + 22, y + 11);
+
+  ctx.restore();
+}
+
+// Floor 1: Elevator Lobby & Solo Phone Focus Booths
+function drawElevatorAndFocusZone(ctx, x, y, w, h, isDark, floorNum = 1) {
+  ctx.save();
+
+  // Floor Base (Polished Transit Tile)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(15, 23, 42, 0.55)');
+    floorGrad.addColorStop(1, 'rgba(10, 16, 30, 0.55)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(240, 249, 255, 0.92)');
+    floorGrad.addColorStop(1, 'rgba(224, 242, 254, 0.92)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Tile seams
+  ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.05)' : 'rgba(56, 189, 248, 0.08)';
+  ctx.lineWidth = 1;
+  for (let px = x + 30; px < x + w - 10; px += 35) {
+    ctx.beginPath();
+    ctx.moveTo(px, y + 4); ctx.lineTo(px, y + h - 4);
+    ctx.stroke();
+  }
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // High-Tech Elevator Bank (Rides to Floor 02)
+  drawElevatorBank(ctx, x + 135, y + 22, isDark, 1, 2);
+
+  // Dual Acoustic Soundproof Solo Phone Booths
+  drawPhoneBooth(ctx, x + 30, y + 120, isDark, 'BOOTH 01');
+  drawPhoneBooth(ctx, x + 85, y + 120, isDark, 'BOOTH 02');
+
+  // Standing Architectural Plant
+  drawPlant(ctx, x + w - 24, y + 36, isDark);
+  drawMonsteraPlant(ctx, x + w - 24, y + h - 28, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '🛗 ELEVATOR & FOCUS', 'Floor 02 Access · Soundproof Booths', isDark ? '#38BDF8' : '#0284C7', isDark);
+
+  ctx.restore();
+}
+
+// Floor 1: Quiet Wellness Library Lounge (Replaces HR Cabin on Floor 1)
+function drawWellnessZone(ctx, x, y, w, h, isDark = true) {
+  ctx.save();
+
+  // Floor Base (Warm Acoustic Parquet Flooring)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(28, 23, 17, 0.55)');
+    floorGrad.addColorStop(1, 'rgba(18, 16, 14, 0.55)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(253, 248, 240, 0.92)');
+    floorGrad.addColorStop(1, 'rgba(246, 239, 227, 0.92)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Parquet wood slats texture
+  ctx.strokeStyle = isDark ? 'rgba(245, 158, 11, 0.05)' : 'rgba(180, 130, 80, 0.08)';
+  ctx.lineWidth = 1;
+  for (let px = x + 16; px < x + w - 10; px += 20) {
+    ctx.beginPath();
+    ctx.moveTo(px, y + 4); ctx.lineTo(px, y + h - 4);
+    ctx.stroke();
+  }
+
+  // Soft Ambient Reading Lamp Glow
+  const lampGlow = ctx.createRadialGradient(x + 130, y + 115, 5, x + 130, y + 115, 75);
+  lampGlow.addColorStop(0, isDark ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.16)');
+  lampGlow.addColorStop(1, 'rgba(251, 191, 36, 0)');
+  ctx.fillStyle = lampGlow;
+  ctx.beginPath();
+  ctx.arc(x + 130, y + 115, 75, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(245, 158, 11, 0.35)' : 'rgba(217, 119, 6, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Bookshelf Wall along Left Edge
+  drawBookshelfWall(ctx, x + 12, y + 55, 16, h - 75, isDark);
+
+  // Velvet Reading Armchairs
+  drawArmchair(ctx, x + 95, y + 125, isDark ? '#1F382E' : '#B4D8C4', isDark);
+  drawArmchair(ctx, x + 165, y + 125, isDark ? '#3D2817' : '#E8C5A5', isDark);
+
+  // Coffee / Reading Table between armchairs
+  drawReadingTable(ctx, x + 130, y + 125, isDark);
+
+  // Standing Brass Arc Lamp
+  drawStandingLamp(ctx, x + 75, y + 155, isDark);
+
+  // Potted Fiddle-Leaf Fig Plant
+  drawPlant(ctx, x + w - 24, y + 36, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '🌿 WELLNESS & LIBRARY', 'Quiet Focus · Acoustic Nook', isDark ? '#10B981' : '#059669', isDark);
+
+  ctx.restore();
+}
+
+function drawBookshelfWall(ctx, x, y, w, h, isDark) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.1)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = isDark ? '#1C1510' : '#8B5A2B';
+  roundedRect(ctx, x, y, w, h, 3);
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  const shelfCount = 4;
+  const shelfH = (h - 10) / shelfCount;
+  const bookColors = ['#DC2626', '#2563EB', '#16A34A', '#D97706', '#9333EA', '#0D9488', '#F59E0B', '#E11D48'];
+
+  for (let s = 0; s < shelfCount; s++) {
+    const sy = y + 5 + s * shelfH;
+    ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.25)';
+    ctx.fillRect(x + 1, sy + shelfH - 2, w - 2, 2);
+
+    for (let b = 0; b < 5; b++) {
+      const bColor = bookColors[(s * 5 + b) % bookColors.length];
+      ctx.fillStyle = bColor;
+      ctx.fillRect(x + 2, sy + 3 + b * 5, w - 4, 3.5);
+    }
+  }
+  ctx.restore();
+}
+
+function drawReadingTable(ctx, x, y, isDark) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = isDark ? '#261D15' : '#D7BA9D';
+  ctx.beginPath();
+  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Open book on table
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = isDark ? '#E2E8F0' : '#FFFFFF';
+  roundedRect(ctx, x - 5, y - 4, 10, 8, 1);
+  ctx.fill();
+  ctx.fillStyle = isDark ? '#94A3B8' : '#CBD5E1';
+  ctx.fillRect(x - 0.5, y - 4, 1, 8);
+  ctx.restore();
+}
+
+// Floor 2: Strategy Boardroom (High-End Oval Boardroom Suite)
+function drawStrategyBoardroomZone(ctx, x, y, w, h, isDark = true) {
+  ctx.save();
+
+  // Floor Base (Executive Deep Charcoal/Navy Acoustic Carpet)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(15, 23, 42, 0.65)');
+    floorGrad.addColorStop(1, 'rgba(10, 16, 30, 0.65)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(241, 245, 249, 0.95)');
+    floorGrad.addColorStop(1, 'rgba(226, 232, 240, 0.95)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Acoustic Gold Woven Inset Border
+  ctx.strokeStyle = isDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(217, 119, 6, 0.3)';
+  ctx.lineWidth = 1.2;
+  roundedRect(ctx, x + 25, y + 45, w - 50, h - 60, 14);
+  ctx.stroke();
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(59, 130, 246, 0.35)' : 'rgba(59, 130, 246, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 98" 4K Interactive Digital Strategy Wall Display
+  drawStrategySmartScreen(ctx, x + w / 2 - 85, y + 10, 170, 20, isDark);
+
+  // Grand Oval Boardroom Table with 8 Leather Chairs
+  drawConferenceTable(ctx, x + w / 2, y + 125, 210, 78, isDark);
+
+  // Refreshment Credenza with chilled water and espresso
+  drawWaterCredenza(ctx, x + 16, y + 90, 16, 55, isDark);
+
+  // Corner Plants
+  drawMonsteraPlant(ctx, x + w - 24, y + 36, isDark);
+  drawPlant(ctx, x + 24, y + 36, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '🤝 STRATEGY BOARDROOM', 'Executive Strategy · 0.15x Silent', isDark ? '#3B82F6' : '#2563EB', isDark);
+
+  ctx.restore();
+}
+
+function drawStrategySmartScreen(ctx, x, y, w, h, isDark) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.15)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 3;
+
+  // Ultra-slim display bezel
+  ctx.fillStyle = isDark ? '#090D16' : '#1E293B';
+  roundedRect(ctx, x, y, w, h, 4);
+  ctx.fill();
+
+  // Active Presentation Display
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = isDark ? '#0F172A' : '#F8FAFC';
+  roundedRect(ctx, x + 3, y + 2, w - 6, h - 4, 2);
+  ctx.fill();
+
+  // Strategic KPI curves & Revenue metrics
+  ctx.strokeStyle = '#10B981';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x + 12, y + 14);
+  ctx.lineTo(x + 25, y + 11);
+  ctx.lineTo(x + 38, y + 13);
+  ctx.lineTo(x + 50, y + 6);
+  ctx.stroke();
+
+  ctx.fillStyle = isDark ? '#E2E8F0' : '#0F172A';
+  ctx.font = '700 7.5px "Manrope", sans-serif';
+  ctx.fillText('STRATEGY & GROWTH ROADMAP', x + 58, y + 11);
+
+  // Soundbar directly beneath screen
+  ctx.fillStyle = isDark ? '#1E293B' : '#475569';
+  roundedRect(ctx, x + w / 2 - 25, y + h + 2, 50, 4, 2);
+  ctx.fill();
+  ctx.fillStyle = '#22C55E';
+  ctx.beginPath();
+  ctx.arc(x + w / 2, y + h + 4, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Floor 2: Leadership & Operations Workstation Hub
+function drawLeadershipWorkstationsZone(ctx, x, y, w, h, isDark = true) {
+  ctx.save();
+
+  // Floor Base (Tech Matrix Slate)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(14, 23, 33, 0.5)');
+    floorGrad.addColorStop(1, 'rgba(10, 17, 26, 0.5)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(240, 247, 255, 0.92)');
+    floorGrad.addColorStop(1, 'rgba(235, 243, 252, 0.92)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Grid Seams
+  ctx.strokeStyle = isDark ? 'rgba(0, 210, 255, 0.04)' : 'rgba(14, 165, 233, 0.06)';
+  ctx.lineWidth = 1;
+  for (let px = x + 36; px < x + w - 10; px += 45) {
+    ctx.beginPath();
+    ctx.moveTo(px, y + 4); ctx.lineTo(px, y + h - 4);
+    ctx.stroke();
+  }
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(0, 210, 255, 0.35)' : 'rgba(14, 165, 233, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Glass Roadmap Whiteboard along Top Wall
+  drawCollaborationWhiteboard(ctx, x + 60, y + 12, 170, 10, isDark);
+
+  // 4 Leadership Workstation Pods with Dual Displays
+  drawWorkstationPod(ctx, x + 35, y + 55, 125, isDark);
+  drawWorkstationPod(ctx, x + 190, y + 55, 125, isDark);
+  drawWorkstationPod(ctx, x + 35, y + 195, 125, isDark);
+  drawWorkstationPod(ctx, x + 190, y + 195, 125, isDark);
+
+  // Lush Corner Greenery
+  drawMonsteraPlant(ctx, x + 24, y + h - 26, isDark);
+  drawMonsteraPlant(ctx, x + w - 24, y + h - 26, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '💻 LEADERSHIP OPS', 'Department Leads · Open Audio', isDark ? '#00D2FF' : '#0284C7', isDark);
+
+  ctx.restore();
+}
+
+// Floor 2: VIP Executive Lounge & Espresso Bar
+function drawExecutiveLoungeZone(ctx, x, y, w, h, isDark = true) {
+  ctx.save();
+
+  // Floor Base (Warm Ambient Amber/Rose Terrazzo)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(26, 18, 30, 0.55)');
+    floorGrad.addColorStop(1, 'rgba(16, 14, 24, 0.55)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(252, 244, 255, 0.92)');
+    floorGrad.addColorStop(1, 'rgba(247, 238, 252, 0.92)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Soft Designer Area Rug
+  ctx.save();
+  ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
+  ctx.strokeStyle = isDark ? 'rgba(236, 72, 153, 0.18)' : 'rgba(219, 39, 119, 0.2)';
+  ctx.lineWidth = 1;
+  roundedRect(ctx, x + 25, y + 42, w - 50, h - 65, 18);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(236, 72, 153, 0.35)' : 'rgba(219, 39, 119, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Luxury L-Sectional Sofa
+  drawLSectionalSofa(ctx, x + 38, y + 55, isDark);
+
+  // Circular Marble Coffee Table with Magazines & Cups
+  drawMarbleCoffeeTable(ctx, x + 115, y + 110, isDark);
+
+  // Fiddle Fig Plant
+  drawPlant(ctx, x + w - 28, y + 36, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '🛋️ EXECUTIVE LOUNGE', 'VIP Breakout · Open Audio', isDark ? '#EC4899' : '#DB2777', isDark);
+
+  ctx.restore();
+}
+
+function drawLSectionalSofa(ctx, x, y, isDark) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.55)' : 'rgba(0, 0, 0, 0.12)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 4;
+
+  const sofaColor = isDark ? '#1C292E' : '#9EBEC5';
+  const cushionColor = isDark ? '#26383E' : '#B8D5DC';
+
+  // Main horizontal couch section
+  ctx.fillStyle = sofaColor;
+  roundedRect(ctx, x, y, 105, 36, 10);
+  ctx.fill();
+
+  // Cushions
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = cushionColor;
+  roundedRect(ctx, x + 5, y + 5, 45, 26, 6);
+  roundedRect(ctx, x + 55, y + 5, 45, 26, 6);
+  ctx.fill();
+
+  // L-extension downward section
+  ctx.fillStyle = sofaColor;
+  roundedRect(ctx, x, y + 34, 38, 48, 8);
+  ctx.fill();
+  ctx.fillStyle = cushionColor;
+  roundedRect(ctx, x + 5, y + 38, 28, 40, 6);
+  ctx.fill();
+
+  // Accent Throw Pillows
+  ctx.fillStyle = '#F59E0B'; // Mustard
+  roundedRect(ctx, x + 92, y + 7, 7, 12, 2);
+  ctx.fill();
+  ctx.fillStyle = '#EA580C'; // Terracotta
+  roundedRect(ctx, x + 7, y + 70, 12, 7, 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawMarbleCoffeeTable(ctx, x, y, isDark) {
+  ctx.save();
+  ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.1)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+
+  // Marble Top with Gold Rim
+  ctx.fillStyle = isDark ? '#2A303C' : '#F1F5F9';
+  ctx.strokeStyle = isDark ? '#D97706' : '#F59E0B';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(x, y, 19, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Designer Magazine & Espresso Cups
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = '#38BDF8';
+  roundedRect(ctx, x - 8, y - 6, 9, 12, 1);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.arc(x + 5, y - 3, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Floor 2: Elevator Bank (to Floor 1) & Corporate Archives
+function drawElevatorAndArchivesZone(ctx, x, y, w, h, isDark, floorNum = 2) {
+  ctx.save();
+
+  // Floor Base (Polished Charcoal Tile)
+  const floorGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (isDark) {
+    floorGrad.addColorStop(0, 'rgba(15, 23, 42, 0.55)');
+    floorGrad.addColorStop(1, 'rgba(10, 16, 30, 0.55)');
+  } else {
+    floorGrad.addColorStop(0, 'rgba(240, 249, 255, 0.92)');
+    floorGrad.addColorStop(1, 'rgba(224, 242, 254, 0.92)');
+  }
+  ctx.fillStyle = floorGrad;
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.fill();
+
+  // Zone Boundary
+  ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  roundedRect(ctx, x, y, w, h, 14);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // High-Tech Elevator Bank (Rides down to Floor 01)
+  drawElevatorBank(ctx, x + 135, y + 55, isDark, 2, 1);
+
+  // Corporate Archive Storage Credenzas
+  drawFilingCabinets(ctx, x + 25, y + 60, 26, 75, isDark);
+
+  // Executive Waiting Bench
+  ctx.save();
+  ctx.fillStyle = isDark ? '#1E293B' : '#94A3B8';
+  roundedRect(ctx, x + 65, y + 80, 50, 20, 4);
+  ctx.fill();
+  ctx.fillStyle = isDark ? '#334155' : '#CBD5E1';
+  roundedRect(ctx, x + 68, y + 83, 44, 14, 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Corner Plant
+  drawMonsteraPlant(ctx, x + w - 24, y + h - 28, isDark);
+
+  // Zone Label Badge
+  drawZoneBadge(ctx, x + 14, y + 20, '🛗 ELEVATOR & ARCHIVES', 'Floor 01 Access · Records', isDark ? '#38BDF8' : '#0284C7', isDark);
+
+  ctx.restore();
+}
+
+// Floating Proximity Badge when player is near the Elevator
+function drawElevatorProximityBadge(ctx, x, y, targetFloor, isDark) {
+  ctx.save();
+  const text = `🛗 Press [E] or Click to ride Elevator to Floor 0${targetFloor}`;
+  ctx.font = '700 8.5px "JetBrains Mono", monospace, sans-serif';
+  const tw = ctx.measureText(text).width + 24;
+  
+  // Floating glass bubble with gentle pulse
+  const bob = Math.sin(Date.now() / 240) * 3;
+  const by = y + bob;
+
+  ctx.shadowColor = isDark ? 'rgba(0, 245, 155, 0.55)' : 'rgba(16, 185, 129, 0.4)';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.96)';
+  roundedRect(ctx, x - tw / 2, by, tw, 22, 6);
+  ctx.fill();
+
+  ctx.strokeStyle = isDark ? '#00F59B' : '#10B981';
+  ctx.lineWidth = 1.3;
+  roundedRect(ctx, x - tw / 2, by, tw, 22, 6);
+  ctx.stroke();
+
+  ctx.fillStyle = isDark ? '#00F59B' : '#059669';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, by + 11);
 
   ctx.restore();
 }

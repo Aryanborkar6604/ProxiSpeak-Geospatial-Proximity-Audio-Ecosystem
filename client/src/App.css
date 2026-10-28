@@ -2324,6 +2324,57 @@ body.server-busy * { cursor: progress !important; }
   letter-spacing: -0.6px;
 }
 
+/* Floor Switcher Navigation Bar */
+.floor-switcher-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-soft, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  padding: 3px;
+  border-radius: 9px;
+}
+
+.floor-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 7px;
+  font: 700 11.5px/1.2 'Manrope', sans-serif;
+  color: var(--muted, #94a3b8);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floor-tab-btn:hover {
+  color: var(--ink, #ffffff);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.floor-tab-btn.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+}
+
+.floor-tab-icon {
+  font-size: 13px;
+}
+
+.floor-tab-tag {
+  font-size: 9.5px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.highlight-pill {
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  color: #38bdf8 !important;
+}
+
 .heading-compact-floor {
   font-size: 10px;
   font-weight: 800;
