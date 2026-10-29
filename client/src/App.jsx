@@ -486,6 +486,13 @@ export default function App() {
     socketRef.current?.emit("move", next);
   }
 
+  function resetAvatarPosition() {
+    const startingPosition = { x: 150, y: 150 };
+    positionRef.current = startingPosition;
+    setPosition(startingPosition);
+    socketRef.current?.emit("move", startingPosition);
+  }
+
   const remoteUserList = Object.values(remoteUsers);
   const distances = remoteUserList.map(getDistance);
   const distance = distances.length
@@ -615,6 +622,10 @@ export default function App() {
           {micEnabled
             ? "🔇 Disable Microphone"
             : "🎤 Enable Microphone"}
+        </button>
+
+        <button onClick={resetAvatarPosition}>
+          ↩️ Reset Avatar Position
         </button>
 
         <p>
