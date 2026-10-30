@@ -14,11 +14,13 @@ export default function App() {
   const remoteUsersRef = useRef({});
   const pendingCandidatesRef = useRef({});
   const positionRef = useRef({ x: 150, y: 150 });
+  const remoteAudioMutedRef = useRef(false);
 
   const [position, setPosition] = useState({ x: 150, y: 150 });
   const [remoteUsers, setRemoteUsers] = useState({});
   const [connected, setConnected] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
+  const [remoteAudioMuted, setRemoteAudioMuted] = useState(false);
   const [micError, setMicError] = useState("");
   const [audioStatus, setAudioStatus] = useState("Audio not connected");
 
@@ -44,12 +46,30 @@ export default function App() {
       }
 
       const distance = getDistance(user);
-      audio.volume = Math.max(
-        0,
-        Math.min(1, 1 - distance / AUDIO_RANGE)
-      );
+      audio.muted = remoteAudioMutedRef.current;
+      audio.volume = remoteAudioMutedRef.current
+        ? 0
+        : Math.max(0, Math.min(1, 1 - distance / AUDIO_RANGE));
     });
   }, [getDistance]);
+
+  const toggleRemoteAudio = () => {
+    const nextMuted = !remoteAudioMutedRef.current;
+    remoteAudioMutedRef.current = nextMuted;
+    setRemoteAudioMuted(nextMuted);
+    updateAudioVolumes();
+
+    // Retry playback from this user click when audio is unmuted.
+    if (!nextMuted) {
+      Object.values(audioElementsRef.current).forEach((audio) => {
+        audio.muted = false;
+        audio.play().catch((error) => {
+          console.warn("Could not resume remote audio:", error);
+          setAudioStatus("Click the page to allow remote audio playback");
+        });
+      });
+    }
+  };
 
   const closePeer = useCallback((userId) => {
     const peer = peersRef.current[userId];
@@ -628,6 +648,10 @@ export default function App() {
           ↩️ Reset Avatar Position
         </button>
 
+        <button onClick={toggleRemoteAudio}>
+          {remoteAudioMuted ? "🔊 Unmute Nearby Voices" : "🔕 Mute Nearby Voices"}
+        </button>
+
         <p>
           Microphone: {" "}
           <strong style={{ color: micEnabled ? "green" : "red" }}>
@@ -636,6 +660,7 @@ export default function App() {
         </p>
 
         <p>Audio status: {audioStatus}</p>
+        <p>Nearby voice sound: {remoteAudioMuted ? "Muted" : "On"}</p>
 
         {micError && (
           <p role="alert" style={{ color: "red" }}>
