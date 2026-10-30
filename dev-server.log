@@ -31,3 +31,7 @@
 [1] 12:03:36 pm [vite] (client) hmr invalidate /src/main.jsx Could not Fast Refresh ("true" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
 [1] 12:03:36 pm [vite] (client) page reload src/main.jsx
 [1] 12:03:40 pm [vite] (client) hmr update /src/styles.css
+[1] 12:06:06 pm [vite] ws proxy socket error:
+[1] Error: read ECONNRESET
+[1]     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[1] vite exited with code 1073807364

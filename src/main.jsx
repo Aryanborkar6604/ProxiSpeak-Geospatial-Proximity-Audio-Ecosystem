@@ -193,15 +193,59 @@ function App() {
       setAudioOutputError(outputs.length ? '' : 'No output devices are available to this browser.');
     } catch { setAudioOutputError('Could not list audio output devices. Check browser permissions.'); }
   }
+  async function selectExternalSpeaker() {
+    const mediaDevices = navigator.mediaDevices;
+    if (typeof mediaDevices?.selectAudioOutput !== 'function') {
+      setAudioOutputError('This browser does not support in-app speaker selection. Set the external speaker as the system output, then choose System default speaker.');
+      return;
+    }
+    try {
+      // This must be called directly from a user click so the browser can grant
+      // permission and reveal the device to the page.
+      const device = await mediaDevices.selectAudioOutput(audioOutputId ? { deviceId: audioOutputId } : undefined);
+      setAudioOutputs(await mediaDevices.enumerateDevices().then(devices => devices.filter(item => item.kind === 'audiooutput')));
+      setAudioOutputId(device.deviceId);
+      try { localStorage.setItem('proxispeak.audioOutput', device.deviceId); } catch {}
+      let context = audioRef.current?.context;
+      if (!context || context.state === 'closed') {
+        context = new AudioContext();
+        audioRef.current = { ...audioRef.current, context };
+      }
+      if (typeof context.setSinkId !== 'function') {
+        setAudioOutputError('This browser selected the speaker but cannot route Web Audio to it. Set it as the system output instead.');
+        return;
+      }
+      await context.setSinkId(device.deviceId);
+      if (context.state !== 'running') await context.resume();
+      for (const [id, stream] of remoteStreamsRef.current) connectSpatialAudio(id, stream);
+      setSoundReady(true);
+      setAudioOutputError('');
+      notify(`Sound is routed to ${device.label || 'your selected speaker'}.`);
+    } catch (err) {
+      if (err?.name === 'NotAllowedError') setAudioOutputError('Speaker permission was blocked. Allow speaker selection for this site and try again.');
+      else if (err?.name !== 'AbortError') setAudioOutputError('Could not select that speaker. Choose System default speaker or retry.');
+    }
+  }
   async function chooseAudioOutput(event) {
     const deviceId = event.target.value;
     setAudioOutputId(deviceId);
     try { localStorage.setItem('proxispeak.audioOutput', deviceId); } catch {}
     const context = audioRef.current?.context;
-    if (!context) { setAudioOutputError('Enable sound first; the selected speaker will be used when audio starts.'); return; }
+    if (!context) { setAudioOutputError('Choose a speaker with the button below. Sound will start when you enable office sound.'); return; }
     if (typeof context.setSinkId !== 'function') { setAudioOutputError('This browser cannot route Web Audio to a selected speaker. Set your external speaker as the system output.'); return; }
     try { await context.setSinkId(deviceId); setAudioOutputError(''); notify('Office audio is now routed to the selected output.'); }
     catch (err) { setAudioOutputError(err?.name === 'NotAllowedError' ? 'The browser blocked speaker selection. Allow this site to select audio output.' : 'Could not switch speaker. Choose the system default and try again.'); }
+  }
+  async function toggleSoundSetting() {
+    if (!soundReady && muted) {
+      if (await enableOfficeSound()) setMuted(false);
+      return;
+    }
+    if (!soundReady && !muted) {
+      if (await enableOfficeSound()) setMuted(false);
+      return;
+    }
+    setMuted(value => !value);
   }
   async function toggleMic() {
     if (micOn) {
@@ -362,7 +406,7 @@ function App() {
         </>}
         {view==='People'&&<div className="subpage"><div className="page-heading"><div><div className="eyebrow">THE FRIENDLY FACES</div><h1>Who’s around? <span className="sun">☀</span></h1><p>Wave hello, wander over, and make a little conversation.</p></div><button className="invite-button" onClick={inviteTeam}>＋ Invite someone</button></div><div className="people-page-grid">{people.map(p=><article className="neighbor-card" key={p.id}><div className="neighbor-banner" style={{'--person':p.color}}><span>{p.demo?'Here for a little demo':'In the office'}</span><span className="presence-dot"/></div><div className="neighbor-body"><div className="person-face neighbor-face" style={{'--person':p.color}}>{p.avatarUrl?<img src={p.avatarUrl} alt=""/>:p.name.split(' ').map(x=>x[0]).join('').slice(0,2)}</div><strong>{p.name}{p.id===me?.id?' (you)':''}</strong><small>{p.role||'In the office'}</small><button onClick={()=>p.id===me?.id?setView('Settings'):enterRoom({name:p.name,x:p.x,y:p.y})}>{p.id===me?.id?'Edit your profile':nearby.some(n=>n.id===p.id)?'Say hello':'Walk over'} →</button></div></article>)}</div></div>}
         {view==='Rooms'&&<div className="subpage"><div className="page-heading"><div><div className="eyebrow">FIND YOUR FEEL-GOOD SPOT</div><h1>Little rooms, big ideas <span className="sun">✿</span></h1><p>Every corner has its own kind of conversation.</p></div><button className="invite-button" onClick={()=>setView('Office')}>⌂ Back to the map</button></div><div className="rooms-grid">{rooms.map(room=><article className={`room-card ${room.tone}`} key={room.name}><div className="room-emoji">{room.emoji}</div><div className="room-count">{room.people} {room.people===1?'neighbor':'neighbors'}</div><h2>{room.name}</h2><p>{room.note}</p><button onClick={()=>enterRoom(room)}>Wander over <span>→</span></button></article>)}</div><div className="room-note">Tip: your voice gets softer as you wander farther away. Find a cozy spot and see who joins you.</div></div>}
-        {view==='Settings'&&<div className="subpage settings-page"><div className="page-heading"><div><div className="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your little settings nook <span className="sun">🪴</span></h1><p>A few small things to make this space feel like yours.</p></div></div><div className="settings-card"><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🙂</span><div><strong>Your profile</strong><small>Manage the details teammates see in the office.</small></div></div><div className="profile-photo-row"><div className="profile-photo-preview">{profilePhoto?<img src={profilePhoto} alt="Profile preview"/>:(displayName.trim().charAt(0)||'Y')}</div><div className="profile-photo-actions"><label className="photo-picker" htmlFor="profile-photo">Choose a photo</label><input id="profile-photo" className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange}/>{profilePhoto&&<button className="remove-photo" onClick={()=>setProfilePhoto('')}>Remove photo</button>}<small>JPG, PNG, or WebP. Resized to 256 × 256.</small></div></div><div className="profile-fields"><label htmlFor="display-name">Display name<input id="display-name" value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="What should we call you?" maxLength={32}/></label><label htmlFor="phone-number">Phone number<input id="phone-number" type="tel" autoComplete="tel" value={phoneNumber} onChange={e=>setPhoneNumber(e.target.value)} placeholder="Optional" maxLength={30}/></label><label htmlFor="date-of-birth">Date of birth<input id="date-of-birth" type="date" autoComplete="bday" value={dateOfBirth} onChange={e=>setDateOfBirth(e.target.value)}/></label></div><div className="profile-save-row"><small>Your phone number and date of birth are private to your account.</small><button className="save-profile-button" onClick={saveProfile} disabled={profileBusy}>{profileBusy?'Saving…':'Save profile'}</button></div></div><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🎧</span><div><strong>Sound & conversations</strong><small>Settle in before joining a nearby chat.</small></div></div><div className="setting-row"><span>Microphone</span><button className={`toggle-pill ${micOn?'on':''}`} onClick={toggleMic}>{micOn?'On':'Off'}</button></div><div className="setting-row"><span>Office sound</span><button className={`toggle-pill ${!muted?'on':''}`} onClick={()=>setMuted(v=>!v)}>{muted?'Muted':'On'}</button></div><div className="setting-row audio-output-row"><label htmlFor="audio-output">Sound output</label><select id="audio-output" value={audioOutputId} onChange={chooseAudioOutput}><option value="">System default speaker</option>{audioOutputs.filter(device=>device.deviceId && device.deviceId!=='default').map((device,index)=><option key={device.deviceId||index} value={device.deviceId}>{device.label||`Audio output ${index+1}`}</option>)}</select></div><div className="audio-output-help">Choose your external speaker here. {audioOutputError||'The browser may hide device names until microphone permission is allowed.'}</div></div><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🗺️</span><div><strong>Getting around</strong><small>Click anywhere on the office map to stroll there, or use WASD / arrow keys.</small></div></div><button className="text-action" onClick={()=>setView('Office')}>Back to the office map →</button></div></div></div>}
+        {view==='Settings'&&<div className="subpage settings-page"><div className="page-heading"><div><div className="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your little settings nook <span className="sun">🪴</span></h1><p>A few small things to make this space feel like yours.</p></div></div><div className="settings-card"><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🙂</span><div><strong>Your profile</strong><small>Manage the details teammates see in the office.</small></div></div><div className="profile-photo-row"><div className="profile-photo-preview">{profilePhoto?<img src={profilePhoto} alt="Profile preview"/>:(displayName.trim().charAt(0)||'Y')}</div><div className="profile-photo-actions"><label className="photo-picker" htmlFor="profile-photo">Choose a photo</label><input id="profile-photo" className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange}/>{profilePhoto&&<button className="remove-photo" onClick={()=>setProfilePhoto('')}>Remove photo</button>}<small>JPG, PNG, or WebP. Resized to 256 × 256.</small></div></div><div className="profile-fields"><label htmlFor="display-name">Display name<input id="display-name" value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="What should we call you?" maxLength={32}/></label><label htmlFor="phone-number">Phone number<input id="phone-number" type="tel" autoComplete="tel" value={phoneNumber} onChange={e=>setPhoneNumber(e.target.value)} placeholder="Optional" maxLength={30}/></label><label htmlFor="date-of-birth">Date of birth<input id="date-of-birth" type="date" autoComplete="bday" value={dateOfBirth} onChange={e=>setDateOfBirth(e.target.value)}/></label></div><div className="profile-save-row"><small>Your phone number and date of birth are private to your account.</small><button className="save-profile-button" onClick={saveProfile} disabled={profileBusy}>{profileBusy?'Saving…':'Save profile'}</button></div></div><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🎧</span><div><strong>Sound & conversations</strong><small>Settle in before joining a nearby chat.</small></div></div><div className="setting-row"><span>Microphone</span><button className={`toggle-pill ${micOn?'on':''}`} onClick={toggleMic}>{micOn?'On':'Off'}</button></div><div className="setting-row"><span>Office sound</span><button className={`toggle-pill ${soundReady&&!muted?'on':''}`} onClick={toggleSoundSetting}>{!soundReady?'Enable sound':muted?'Muted':'On'}</button></div><div className="setting-row audio-output-row"><label htmlFor="audio-output">Sound output</label><select id="audio-output" value={audioOutputId} onChange={chooseAudioOutput}><option value="">System default speaker</option>{audioOutputs.filter(device=>device.deviceId && device.deviceId!=='default').map((device,index)=><option key={device.deviceId||index} value={device.deviceId}>{device.label||`Audio output ${index+1}`}</option>)}</select><button className="speaker-picker-button" onClick={selectExternalSpeaker}>Choose speaker…</button></div><div className="audio-output-help">{audioOutputError||'Select your external speaker and enable office sound. If the browser has no speaker selector, set the speaker as the system output.'}</div></div><div className="settings-section"><div className="settings-heading"><span className="settings-emoji">🗺️</span><div><strong>Getting around</strong><small>Click anywhere on the office map to stroll there, or use WASD / arrow keys.</small></div></div><button className="text-action" onClick={()=>setView('Office')}>Back to the office map →</button></div></div></div>}
       </section>
     </main>
     {toast&&<div className="toast">{toast}</div>}
