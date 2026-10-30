@@ -116,18 +116,12 @@ function socketHandler(io) {
           spawnY = existingPos?.location?.[1] ?? (320 + Math.floor(Math.random() * 40));
         }
 
-        
-        // Execute in parallel for instant response
-        const [onlinePositions, nearbyPositions] = await Promise.all([
-          positionService.getOnlineUsers(officeId, office),
-          positionService.getNearbyUsers(officeId, spawnX, spawnY, office.hearingRadiusPx || 105),
+        // Update position and fetch office sockets in parallel
+        const [officeSockets] = await Promise.all([
+          io.in(officeId).fetchSockets(),
           positionService.updatePosition(userId, officeId, spawnX, spawnY),
         ]);
-        const positionsByUserId = new Map(
-          [...onlinePositions, ...nearbyPositions].map((position) => [position.userId, position]),
-        );
-        const joinedPositions = [...positionsByUserId.values()];
-        const officeSockets = await io.in(officeId).fetchSockets();
+
         const activeUserIdsInOffice = new Set(
           officeSockets.map((s) => s.data.userId).filter(Boolean)
         );
@@ -140,14 +134,15 @@ function socketHandler(io) {
         );
         namesByUserId.set(userId, socket.data.userName || `User ${String(userId).slice(-4)}`);
 
-        // Filter joinedPositions strictly to users currently online with an active socket
-        const liveUsers = joinedPositions
+        // Get all online positions from fast in-memory store (no DB roundtrip)
+        const memoryPositions = positionService.getActivePositionsForOffice(officeId);
+        const liveUsers = memoryPositions
           .filter((user) => activeUserIdsInOffice.has(user.userId))
           .map((user) => ({
             ...(user.toObject ? user.toObject() : user),
-            name: namesByUserId.get(user.userId) || `Teammate`,
+            name: namesByUserId.get(user.userId) || 'Teammate',
           }));
-        
+
         socket.emit('office:state', {
           officeId: office.officeId,
           width: office.width,
@@ -159,7 +154,7 @@ function socketHandler(io) {
 
         // Broadcast to everyone else in the office so they see the new avatar instantly
         socket.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x: spawnX, y: spawnY });
-        
+
         console.log(`User ${userId} joined office ${officeId} at [${spawnX}, ${spawnY}]`);
       } catch (err) {
         console.error('office:join error', err);

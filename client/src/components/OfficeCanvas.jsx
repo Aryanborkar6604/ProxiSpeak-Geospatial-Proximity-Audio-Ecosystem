@@ -27,6 +27,7 @@ export default function OfficeCanvas({
   const localPos = useRef(
     deviceCache.loadPosition(officeState?.officeId, localUserId) || { x: 175, y: 335 }
   );
+  const lastSaveTime = useRef(0);
   const lastEmitTime = useRef(0);
   const trailingMoveTimeout = useRef(null);
   const syncTimeoutRef = useRef(null);
@@ -144,6 +145,88 @@ export default function OfficeCanvas({
     let frameCount = 0;
     let fpsWindowStart = performance.now();
 
+    // Offscreen canvas for the static floor background (grid + room bases + walls)
+    // Rebuilt only on resize or theme change — never every frame.
+    let bgCanvas = document.createElement('canvas');
+    let bgCtx = bgCanvas.getContext('2d');
+    let bgDark = null; // track last rendered theme
+    let bgWidth = 0;
+    let bgHeight = 0;
+
+    function buildBgCanvas(width, height, dark, offW, offH) {
+      bgCanvas.width = Math.round(width * pixelRatio);
+      bgCanvas.height = Math.round(height * pixelRatio);
+      bgWidth = width;
+      bgHeight = height;
+      bgDark = dark;
+
+      const bc = bgCtx;
+      bc.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      bc.clearRect(0, 0, width, height);
+
+      // Background gradient
+      const bgGrad = bc.createRadialGradient(
+        width / 2, height / 2, 40,
+        width / 2, height / 2, Math.max(width, height) * 0.75
+      );
+      if (dark) {
+        bgGrad.addColorStop(0, '#0F151E');
+        bgGrad.addColorStop(0.55, '#0B0F16');
+        bgGrad.addColorStop(1, '#07090D');
+      } else {
+        bgGrad.addColorStop(0, '#FFFFFF');
+        bgGrad.addColorStop(0.55, '#F5F7FA');
+        bgGrad.addColorStop(1, '#E9EDF5');
+      }
+      bc.fillStyle = bgGrad;
+      bc.fillRect(0, 0, width, height);
+
+      const sx = width / offW;
+      const sy = height / offH;
+      bc.save();
+      bc.scale(sx, sy);
+
+      // Matrix floor grid – drawn once into bg cache
+      // Use a single path for all dots to minimize draw calls
+      bc.fillStyle = dark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.04)';
+      bc.beginPath();
+      for (let gx = 32; gx < offW; gx += 32) {
+        for (let gy = 32; gy < offH; gy += 32) {
+          if (gx % 128 === 0 && gy % 128 === 0) continue; // cross markers drawn separately
+          bc.moveTo(gx + 1, gy);
+          bc.arc(gx, gy, 1, 0, Math.PI * 2);
+        }
+      }
+      bc.fill();
+
+      // Cross markers
+      bc.strokeStyle = dark ? 'rgba(0,245,155,0.18)' : 'rgba(31,168,150,0.22)';
+      bc.lineWidth = 1;
+      bc.beginPath();
+      for (let gx = 128; gx < offW; gx += 128) {
+        for (let gy = 128; gy < offH; gy += 128) {
+          bc.moveTo(gx - 4, gy); bc.lineTo(gx + 4, gy);
+          bc.moveTo(gx, gy - 4); bc.lineTo(gx, gy + 4);
+        }
+      }
+      bc.stroke();
+
+      // Floor waypoint pathway lines
+      bc.strokeStyle = dark ? 'rgba(0,210,255,0.08)' : 'rgba(14,165,233,0.1)';
+      bc.lineWidth = 1.2;
+      bc.setLineDash([8, 12]);
+      bc.beginPath();
+      bc.moveTo(255, 255); bc.lineTo(255, 445);
+      bc.moveTo(745, 255); bc.lineTo(745, 445);
+      bc.moveTo(255, 350); bc.lineTo(325, 350);
+      bc.moveTo(675, 350); bc.lineTo(745, 350);
+      bc.moveTo(500, 255); bc.lineTo(500, 285);
+      bc.stroke();
+      bc.setLineDash([]);
+
+      bc.restore();
+    }
+
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -151,6 +234,7 @@ export default function OfficeCanvas({
       canvas.width = Math.round(rect.width * pixelRatio);
       canvas.height = Math.round(rect.height * pixelRatio);
       setCanvasSize({ width: rect.width, height: rect.height });
+      bgDark = null; // force bg rebuild on next frame
     };
 
     const observer = new ResizeObserver(resize);
@@ -173,75 +257,24 @@ export default function OfficeCanvas({
       const curAudio = audioStateRef.current;
       const dark = curAudio.isDarkMode;
 
-      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      ctx.clearRect(0, 0, width, height);
-
-      // 1. Executive Modern Matte Canvas Floor with Vignette
-      const bgGrad = ctx.createRadialGradient(
-        width / 2, height / 2, 40,
-        width / 2, height / 2, Math.max(width, height) * 0.75
-      );
-      if (dark) {
-        bgGrad.addColorStop(0, '#0F151E');
-        bgGrad.addColorStop(0.55, '#0B0F16');
-        bgGrad.addColorStop(1, '#07090D');
-      } else {
-        bgGrad.addColorStop(0, '#FFFFFF');
-        bgGrad.addColorStop(0.55, '#F5F7FA');
-        bgGrad.addColorStop(1, '#E9EDF5');
+      // Rebuild bg cache if theme or size changed
+      if (bgDark !== dark || bgWidth !== width || bgHeight !== height) {
+        buildBgCanvas(width, height, dark, officeState?.width || 1000, officeState?.height || 700);
       }
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, width, height);
+
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+      // 1 + 2: Blit the pre-rendered static floor in one fast drawImage call
+      ctx.drawImage(bgCanvas, 0, 0, bgCanvas.width, bgCanvas.height, 0, 0, width, height);
 
       ctx.save();
       ctx.scale(sx, sy);
 
-      // 2. High-Tech Matrix Floor Grid & Navigation Channels
-      ctx.save();
-      for (let x = 32; x < officeState.width; x += 32) {
-        for (let y = 32; y < officeState.height; y += 32) {
-          const isCross = (x % 128 === 0 && y % 128 === 0);
-          if (isCross) {
-            ctx.strokeStyle = dark ? 'rgba(0, 245, 155, 0.18)' : 'rgba(31, 168, 150, 0.22)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
-            ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4);
-            ctx.stroke();
-          } else {
-            ctx.fillStyle = dark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.04)';
-            ctx.beginPath();
-            ctx.arc(x, y, 1, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-
-      // Floor Waypoint Pathway Lines between rooms
-      ctx.strokeStyle = dark ? 'rgba(0, 210, 255, 0.08)' : 'rgba(14, 165, 233, 0.1)';
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([8, 12]);
-      ctx.beginPath();
-      // North-South West Corridor (Reception to HR Cabin)
-      ctx.moveTo(255, 255); ctx.lineTo(255, 445);
-      // North-South East Corridor (Manager Cabin to Lunch Room)
-      ctx.moveTo(745, 255); ctx.lineTo(745, 445);
-      // Central Cross Corridors into Open Workstations
-      ctx.moveTo(255, 350); ctx.lineTo(325, 350);
-      ctx.moveTo(675, 350); ctx.lineTo(745, 350);
-      // Meeting Room South Entrance to Workstations
-      ctx.moveTo(500, 255); ctx.lineTo(500, 285);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-
       // 3. Architectural Room Floors & Customized Furniture
-      drawReceptionZone(ctx, 35, 35, 260, 220, dark);
       drawMeetingZone(ctx, 325, 35, 350, 220, dark);
       drawManagerZone(ctx, 705, 35, 260, 220, dark);
       drawHRZone(ctx, 35, 445, 260, 220, dark);
       drawWorkstationsZone(ctx, 325, 285, 350, 380, dark);
-      drawLunchZone(ctx, 705, 445, 260, 220, dark);
 
       // 4. Sound-Blocking Laser Acoustic Walls (Rule R-20)
       const obstacles = officeState?.obstacles || [];
@@ -429,7 +462,7 @@ export default function OfficeCanvas({
     };
 
     draw();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); bgCanvas = null; bgCtx = null; };
   }, [officeState]);
 
   // Keyboard navigation with particle spawning
@@ -453,7 +486,12 @@ export default function OfficeCanvas({
       if (moveParticles.current.length > 25) moveParticles.current.shift();
 
       localPos.current = { x: nextX, y: nextY };
-      deviceCache.savePosition(officeState?.officeId, localUserId, localPos.current);
+      // Throttle position saves to every 2s – avoids sync localStorage writes each keydown
+      const saveNow = Date.now();
+      if (saveNow - lastSaveTime.current >= 2000) {
+        deviceCache.savePosition(officeState?.officeId, localUserId, localPos.current);
+        lastSaveTime.current = saveNow;
+      }
       scheduleSync();
 
       const now = Date.now();

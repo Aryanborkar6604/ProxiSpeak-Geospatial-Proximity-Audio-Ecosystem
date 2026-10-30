@@ -121,11 +121,6 @@ async function startServer() {
   });
   app.use(express.json({ limit: '32kb', strict: true }));
 
-  app.use((req, res, next) => {
-    console.log(`[${req.method}] ${req.path}`);
-    next();
-  });
-
   app.use('/api', createRateLimiter({ windowMs: 60_000, max: 300 }));
 
   const officeRoutes = require('./routes/office.routes');

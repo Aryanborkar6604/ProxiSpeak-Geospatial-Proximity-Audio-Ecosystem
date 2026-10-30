@@ -6,11 +6,6 @@ const officeCache = new Map();
 const MAX_CACHED_OFFICES = 1000;
 
 const DEFAULT_OBSTACLES = [
-  // Reception Right Partition (leaves hallway doorway at y: 195-255)
-  { type: 'wall', x1: 295, y1: 35, x2: 295, y2: 195, attenuation: 0.25 },
-  // Reception Bottom Partition (doorway at x: 215-295)
-  { type: 'wall', x1: 35, y1: 255, x2: 215, y2: 255, attenuation: 0.25 },
-
   // Meeting Room Bottom Partition (center conference doorway at x: 460-540)
   { type: 'wall', x1: 325, y1: 255, x2: 460, y2: 255, attenuation: 0.20 },
   { type: 'wall', x1: 540, y1: 255, x2: 675, y2: 255, attenuation: 0.20 },
@@ -27,20 +22,13 @@ const DEFAULT_OBSTACLES = [
   { type: 'wall', x1: 35, y1: 445, x2: 215, y2: 445, attenuation: 0.20 },
   // HR Cabin Right Partition (doorway at y: 445-495)
   { type: 'wall', x1: 295, y1: 495, x2: 295, y2: 665, attenuation: 0.20 },
-
-  // Lunch Room Top Partition (doorway at x: 705-785)
-  { type: 'wall', x1: 785, y1: 445, x2: 965, y2: 445, attenuation: 0.25 },
-  // Lunch Room Left Partition (doorway at y: 445-495)
-  { type: 'wall', x1: 705, y1: 495, x2: 705, y2: 665, attenuation: 0.25 },
 ];
 
 const DEFAULT_ZONES = [
-  { name: 'RECEPTION', shape: 'rect', x: 35, y: 35, w: 260, h: 220 },
   { name: 'MEETING ROOM', shape: 'rect', x: 325, y: 35, w: 350, h: 220 },
   { name: 'MANAGER CABIN', shape: 'rect', x: 705, y: 35, w: 260, h: 220 },
   { name: 'WORKSTATIONS', shape: 'rect', x: 325, y: 285, w: 350, h: 380 },
   { name: 'HR CABIN', shape: 'rect', x: 35, y: 445, w: 260, h: 220 },
-  { name: 'LUNCH ROOM', shape: 'rect', x: 705, y: 445, w: 260, h: 220 },
 ];
 const OFFICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 

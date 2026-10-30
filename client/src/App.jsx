@@ -535,21 +535,41 @@ function App() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: reducedMotion ? 0 : 0.52, delay: reducedMotion ? 0 : 0.1, ease: [0.16, 1, 0.3, 1] }}
           >
+            <div className="login-badge-pill">
+              <Sparkles size={12} className="login-badge-sparkle" />
+              <span>OFFICE ACCESS TERMINAL · LEVEL 01</span>
+            </div>
             <h1>Good work happens<br /><em>within earshot.</em></h1>
-            <p>A shared office where you can see your team, move around the floor, and talk when you’re nearby.</p>
+            <p>A shared virtual office where presence has physical meaning. Walk up to teammates and talk seamlessly.</p>
             <div className="auth-map-preview" role="img" aria-label="Illustration of an office floor and a nearby voice range">
-              <div className="auth-map-heading"><span><AudioLines size={14} /> THE OFFICE</span><span>ILLUSTRATION</span></div>
+              <div className="auth-map-heading">
+                <span><AudioLines size={14} /> LIVE SPATIAL RADAR</span>
+                <span className="auth-security-tag"><ShieldCheck size={11} /> E2EE P2P MESH</span>
+              </div>
               <div className="auth-map-floor">
-                <span className="auth-room room-library">THE LIBRARY</span>
-                <span className="auth-room room-studio">STUDIO</span>
-                <span className="auth-room room-lounge">LOUNGE</span>
+                <span className="auth-room room-library">RECEPTION</span>
+                <span className="auth-room room-studio">MEETING ROOM</span>
+                <span className="auth-room room-lounge">WORKSTATIONS</span>
                 <span className="auth-map-voice-link" aria-hidden="true" />
                 <span className="auth-map-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
                 <span className="auth-range" />
                 <span className="auth-map-person auth-map-you">YOU</span>
                 <span className="auth-map-person auth-map-teammate">TEAMMATE</span>
               </div>
-              <div className="auth-map-legend"><i /><span>VOICE RANGE</span><i className="auth-legend-person" /><span>TEAM PRESENCE</span></div>
+              <div className="auth-telemetry-strip">
+                <div className="telemetry-chip">
+                  <span className="telemetry-label">VOICE RANGE</span>
+                  <span className="telemetry-val">100px (6.0m)</span>
+                </div>
+                <div className="telemetry-chip">
+                  <span className="telemetry-label">SIGNAL</span>
+                  <span className="telemetry-val text-lavender">P2P ENCRYPTED</span>
+                </div>
+                <div className="telemetry-chip">
+                  <span className="telemetry-label">WALL DAMPING</span>
+                  <span className="telemetry-val">-18 dB</span>
+                </div>
+              </div>
             </div>
           </motion.div>
           <div className="login-visual-footer"><span>PROXIMITY, MADE HUMAN</span><span>PROXISPEAK</span></div>
@@ -565,6 +585,13 @@ function App() {
             transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.16, 1, 0.3, 1] }}
             aria-labelledby="auth-title"
           >
+            <div className="auth-terminal-header">
+              <span className="terminal-chip" />
+              <span className="terminal-badge">OFFICE KEYCARD PASS</span>
+              <div className="terminal-soundwave" aria-hidden="true">
+                <span /><span /><span /><span /><span />
+              </div>
+            </div>
             <h2 id="auth-title">{isRegister ? 'Join your team.' : 'Sign in to your office.'}</h2>
             <p className="login-subtitle">
               {isRegister ? 'Set up your account to step into the office.' : 'Sign in to join your team’s shared space.'}
@@ -799,19 +826,6 @@ function App() {
                     type="button"
                     className="room-pill-btn"
                     onClick={() => {
-                      const pos = { x: 160, y: 145 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Reception Area');
-                    }}
-                    title="Jump to Reception"
-                  >
-                    🛎️ Reception
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
                       const pos = { x: 500, y: 145 };
                       if (socket) socket.emit('player:move', pos);
                       handlePositionChange(pos, peers);
@@ -859,19 +873,6 @@ function App() {
                     title="Jump to HR Cabin"
                   >
                     📋 HR Cabin
-                  </button>
-                  <button
-                    type="button"
-                    className="room-pill-btn"
-                    onClick={() => {
-                      const pos = { x: 835, y: 555 };
-                      if (socket) socket.emit('player:move', pos);
-                      handlePositionChange(pos, peers);
-                      toast.info('Teleported to Lunch Room');
-                    }}
-                    title="Jump to Lunch Room"
-                  >
-                    ☕ Lunch Room
                   </button>
                 </div>
                 <span className="map-legend">
@@ -1229,6 +1230,10 @@ function LandingPage({ onNavigate }) {
           animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
           transition={{ duration: reducedMotion ? 0 : 0.62, ease: motionEase }}
         >
+          <div className="landing-badge-pill">
+            <Sparkles size={13} className="landing-badge-sparkle" />
+            <span>NEXT-GEN SPATIAL WORKSPACE</span>
+          </div>
           <h1 id="landing-title">
             <span className="landing-title-lead">Good work happens</span>
             <motion.span
@@ -1241,6 +1246,11 @@ function LandingPage({ onNavigate }) {
             </motion.span>
           </h1>
           <p>Skip the meeting link for the little things. See your team, walk over, and talk when it makes sense.</p>
+          <div className="landing-stat-strip">
+            <span className="landing-stat-item"><i className="stat-dot dot-lavender" /> 2D Spatial Audio</span>
+            <span className="landing-stat-item"><i className="stat-dot dot-platinum" /> Zero Meeting Links</span>
+            <span className="landing-stat-item"><i className="stat-dot dot-mocha" /> Dynamic Acoustic Walls</span>
+          </div>
           <div className="landing-hero-actions">
             <a className="button button-primary landing-primary-button" href={authHref('register')} onClick={navigateToAuth('register')}>
               Step into your office <ArrowUpRight size={17} />
@@ -1330,11 +1340,48 @@ function LandingPage({ onNavigate }) {
             </svg>
           </div>
           <div className="landing-demo-controls">
+            <div className="landing-demo-presets">
+              <span className="demo-preset-label">RADAR PRESETS:</span>
+              <button type="button" className={`demo-preset-btn ${distance <= 25 ? 'active' : ''}`} onClick={() => setDistance(18)}>
+                🎙️ Huddle (1.8m)
+              </button>
+              <button type="button" className={`demo-preset-btn ${distance > 25 && distance <= 50 ? 'active' : ''}`} onClick={() => setDistance(34)}>
+                🤝 Desk Neighbor (3.4m)
+              </button>
+              <button type="button" className={`demo-preset-btn ${distance > 50 && distance <= 80 ? 'active' : ''}`} onClick={() => setDistance(65)}>
+                ☕ Across Pod (7.8m)
+              </button>
+              <button type="button" className={`demo-preset-btn ${distance > 80 ? 'active' : ''}`} onClick={() => setDistance(92)}>
+                🚪 Hallway (-24dB)
+              </button>
+            </div>
+            <div className="demo-telemetry-hud">
+              <div className="telemetry-hud-item">
+                <span className="hud-label">DISTANCE</span>
+                <span className="hud-val">{(distance * 0.12).toFixed(1)} m</span>
+              </div>
+              <div className="telemetry-hud-item">
+                <span className="hud-label">VOLUME LEVEL</span>
+                <span className={`hud-val ${nearby ? 'text-lavender' : ''}`}>
+                  {nearby ? '100% (0 dB Natural)' : distance > 70 ? '0% (-∞ dB Muffled)' : '25% (-12 dB Murmur)'}
+                </span>
+              </div>
+              <div className="telemetry-hud-item">
+                <span className="hud-label">SPATIAL EQUALIZER</span>
+                <div className="hud-equalizer" aria-hidden="true">
+                  <span className={nearby ? 'bar-active' : ''} />
+                  <span className={nearby ? 'bar-active' : ''} />
+                  <span className={nearby ? 'bar-active' : ''} />
+                  <span className={nearby ? 'bar-active' : ''} />
+                  <span className={nearby ? 'bar-active' : ''} />
+                </div>
+              </div>
+            </div>
             <div className="landing-distance-copy">
               <span className={`landing-distance-status ${nearby ? 'is-nearby' : ''}`} role="status" aria-live="polite">
-                <i /> {nearby ? 'WITHIN VOICE RANGE' : 'ACROSS THE ROOM'}
+                <i /> {nearby ? 'WITHIN VOICE RANGE · STEREO AUDIO ACTIVE' : 'ACROSS THE ROOM · AUDIBILITY MUTED'}
               </span>
-              <label htmlFor="proximity-distance">Move Maya closer</label>
+              <label htmlFor="proximity-distance">Drag or scrub distance to listener</label>
             </div>
             <input
               id="proximity-distance"
@@ -1348,8 +1395,42 @@ function LandingPage({ onNavigate }) {
             />
             <span className="landing-range-label">FAR</span>
           </div>
-          <p className="landing-demo-caption">Move a teammate. Watch the voice range respond.</p>
+          <p className="landing-demo-caption">Interactive distance attenuation engine. Scrub slider or click presets to hear and see range response.</p>
         </motion.section>
+      </section>
+
+      <section className="landing-engine-showcase" aria-labelledby="engine-showcase-title">
+        <div className="engine-showcase-header">
+          <div className="engine-pill"><Sparkles size={13} /> <span>ACOUSTIC PHYSICS ARCHITECTURE</span></div>
+          <h2 id="engine-showcase-title">Engineered for spontaneous human conversation.</h2>
+          <p>Built on WebRTC peer-to-peer data channels and continuous 2D Euclidean coordinate raycasting.</p>
+        </div>
+        <div className="engine-cards-grid">
+          <div className="engine-card">
+            <div className="engine-card-icon"><Headphones size={22} /></div>
+            <h3>360° Binaural Spatialization</h3>
+            <p>Audio is dynamically calculated at 60 FPS based on relative coordinate vectors between avatars for natural distance attenuation.</p>
+            <span className="engine-card-tag">CONTINUOUS STEREO PAN</span>
+          </div>
+          <div className="engine-card">
+            <div className="engine-card-icon"><ShieldCheck size={22} /></div>
+            <h3>Acoustic Wall Occlusion</h3>
+            <p>Partitions, manager glass, and boardroom doors attenuate sound volume by 75% to 85% with line-segment ray intersection.</p>
+            <span className="engine-card-tag">-18 dB DAMPING</span>
+          </div>
+          <div className="engine-card">
+            <div className="engine-card-icon"><Radio size={22} /></div>
+            <h3>Peer-to-Peer Mesh Privacy</h3>
+            <p>Voice data streams directly between team members over encrypted DTLS-SRTP UDP channels without cloud recording.</p>
+            <span className="engine-card-tag">AES-256 ENCRYPTION</span>
+          </div>
+          <div className="engine-card">
+            <div className="engine-card-icon"><Activity size={22} /></div>
+            <h3>Sub-20ms Proximity Ticks</h3>
+            <p>In-memory spatial indexing recomputes listener boundaries at 20 Hz with zero database contention or network lag.</p>
+            <span className="engine-card-tag">&lt; 20ms LATENCY</span>
+          </div>
+        </div>
       </section>
 
       <section className="landing-how" id="how-it-works" aria-labelledby="landing-how-title">
