@@ -482,18 +482,15 @@ export default function App() {
     setAudioStatus("Microphone off");
   }
 
-  function moveAvatar(event) {
-    const key = event.key.toLowerCase();
+  function moveAvatarBy(direction) {
     const step = 15;
     let { x, y } = positionRef.current;
 
-    if (key === "arrowup" || key === "w") y -= step;
-    else if (key === "arrowdown" || key === "s") y += step;
-    else if (key === "arrowleft" || key === "a") x -= step;
-    else if (key === "arrowright" || key === "d") x += step;
+    if (direction === "up") y -= step;
+    else if (direction === "down") y += step;
+    else if (direction === "left") x -= step;
+    else if (direction === "right") x += step;
     else return;
-
-    event.preventDefault();
 
     const next = {
       x: Math.max(20, Math.min(700, x)),
@@ -502,8 +499,27 @@ export default function App() {
 
     positionRef.current = next;
     setPosition(next);
-
     socketRef.current?.emit("move", next);
+  }
+
+  function moveAvatar(event) {
+    const key = event.key.toLowerCase();
+    const directions = {
+      arrowup: "up",
+      w: "up",
+      arrowdown: "down",
+      s: "down",
+      arrowleft: "left",
+      a: "left",
+      arrowright: "right",
+      d: "right"
+    };
+
+    const direction = directions[key];
+    if (!direction) return;
+
+    event.preventDefault();
+    moveAvatarBy(direction);
   }
 
   function resetAvatarPosition() {
@@ -648,6 +664,24 @@ export default function App() {
           ↩️ Reset Avatar Position
         </button>
 
+        <div
+          aria-label="Avatar movement controls"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 48px)",
+            gap: "6px",
+            justifyContent: "center",
+            margin: "12px auto"
+          }}
+        >
+          <span />
+          <button type="button" onClick={() => moveAvatarBy("up")} aria-label="Move up">↑</button>
+          <span />
+          <button type="button" onClick={() => moveAvatarBy("left")} aria-label="Move left">←</button>
+          <button type="button" onClick={() => moveAvatarBy("down")} aria-label="Move down">↓</button>
+          <button type="button" onClick={() => moveAvatarBy("right")} aria-label="Move right">→</button>
+        </div>
+
         <button onClick={toggleRemoteAudio}>
           {remoteAudioMuted ? "🔊 Unmute Nearby Voices" : "🔕 Mute Nearby Voices"}
         </button>
@@ -701,7 +735,7 @@ export default function App() {
       </section>
 
       <footer>
-        Use arrow keys or W, A, S, D to move.
+        Use arrow keys, W, A, S, D, or the on-screen arrow buttons to move.
         Open this site in two browser tabs to test.
         Use headphones to avoid audio feedback.
       </footer>
