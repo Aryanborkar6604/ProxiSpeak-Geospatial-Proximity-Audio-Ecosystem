@@ -100,3 +100,63 @@ export function toggleAmbientSound(mode = 'drone') {
   return true;
 }
 
+/**
+ * Plays an interactive Web Audio chime simulating distance and wall occlusion.
+ * @param {number} distance - Distance value from 0 to 100
+ */
+export function playProximityPreview(distance = 18) {
+  const ctx = getCtx();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  const isOccluded = distance > 80;
+  const normalizedDist = Math.max(0, Math.min(100, distance));
+
+  // Natural inverse-distance attenuation curve (gain 0 to 1)
+  let gainLevel = Math.max(0, 1 - (normalizedDist / 85));
+  if (isOccluded) {
+    gainLevel = 0.09; // -24 dB muffled through drywall/glass
+  }
+
+  // Harmonic chord: A4 (440Hz), C#5 (554.37Hz), E5 (659.25Hz)
+  const chordFrequencies = [440, 554.37, 659.25];
+
+  chordFrequencies.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const noteGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+
+    // Dynamic low-pass acoustic filtering:
+    // Bright (6500 Hz) at close range, warm (2400 Hz) at medium, muffled (420 Hz) through walls
+    filter.type = 'lowpass';
+    const cutoff = isOccluded ? 420 : Math.max(700, 6800 - normalizedDist * 60);
+    filter.frequency.setValueAtTime(cutoff, now);
+
+    const noteStart = now + idx * 0.06;
+    const peakGain = Math.max(0.003, gainLevel * 0.16);
+
+    noteGain.gain.setValueAtTime(0.0001, noteStart);
+    noteGain.gain.linearRampToValueAtTime(peakGain, noteStart + 0.02);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.42);
+
+    osc.connect(filter);
+    filter.connect(noteGain);
+
+    if (panner) {
+      // Pan to right ear (+0.3 to +0.8) matching Maya's location on the stage
+      panner.pan.setValueAtTime(Math.min(0.85, 0.25 + (normalizedDist / 100) * 0.55), now);
+      noteGain.connect(panner);
+      panner.connect(ctx.destination);
+    } else {
+      noteGain.connect(ctx.destination);
+    }
+
+    osc.start(noteStart);
+    osc.stop(noteStart + 0.48);
+  });
+}
+

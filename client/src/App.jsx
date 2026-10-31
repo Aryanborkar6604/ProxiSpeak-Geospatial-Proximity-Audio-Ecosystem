@@ -7,13 +7,13 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
 import './App.css';
 import {
-  Activity, ArrowUpRight, AudioLines, Check, Command, Copy, Eye, EyeOff, Headphones, LogOut, Menu, Mic,
-  MicOff, Moon, Radio, Search,
-  Share2, ShieldCheck, SlidersHorizontal, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X,
+  Activity, ArrowUpRight, AudioLines, Building2, Check, CheckCircle2, ChevronDown, Coffee, Command, Copy, Eye, EyeOff, Headphones, Layers, Lock, LogOut, Menu, Mic,
+  MicOff, Moon, Play, Radio, Search,
+  Share2, ShieldCheck, SlidersHorizontal, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X, XCircle, Zap,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
 import SlidableWorkspaceMenu from './components/SlidableWorkspaceMenu';
-import { playSpatialPing, toggleAmbientSound } from './utils/audioFx';
+import { playSpatialPing, toggleAmbientSound, playProximityPreview } from './utils/audioFx';
 import deviceCache from './utils/deviceCache';
 
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -1151,6 +1151,10 @@ function LandingPage({ onNavigate }) {
   const reducedMotion = useReducedMotion();
   const [distance, setDistance] = useState(62);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [activePod, setActivePod] = useState('bullpen');
+  const [openFaq, setOpenFaq] = useState(0);
+
   const nearby = distance <= 34;
   const teammateX = 316 + distance * 1.9;
   const authHref = (mode) => `/${mode}${window.location.search}`;
@@ -1161,6 +1165,17 @@ function LandingPage({ onNavigate }) {
   };
   const motionEase = [0.16, 1, 0.3, 1];
 
+  const handleTriggerAudio = (dist = distance) => {
+    setIsPlayingAudio(true);
+    playProximityPreview(dist);
+    window.setTimeout(() => setIsPlayingAudio(false), 550);
+  };
+
+  const handleSelectPreset = (dist) => {
+    setDistance(dist);
+    handleTriggerAudio(dist);
+  };
+
   useEffect(() => {
     if (!menuOpen) return undefined;
     const closeOnEscape = (event) => {
@@ -1169,6 +1184,116 @@ function LandingPage({ onNavigate }) {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [menuOpen]);
+
+  const OFFICE_PODS = [
+    {
+      id: 'bullpen',
+      title: 'Open Engineering Pod',
+      tag: 'PROXIMITY SYNC',
+      icon: Layers,
+      headline: 'Pair programming and instant unblocks without sending calendar invites.',
+      description: 'Dynamic Euclidean distance falloff within 6 meters. Avatars sitting in adjacent desks hear crisp, natural stereo conversation, while team members at adjacent pods hear silence.',
+      specs: [
+        { label: 'ACOUSTIC ISOLATION', value: 'Dynamic Falloff' },
+        { label: 'LATENCY PROFILE', value: '< 18ms WebRTC' },
+        { label: 'IDEAL WORKFLOW', value: 'Triage & Pairing' },
+      ],
+      schematic: 'bullpen',
+    },
+    {
+      id: 'cabin',
+      title: 'Private Executive Cabin',
+      tag: 'HIGH ISOLATION',
+      icon: Lock,
+      headline: 'Acoustic glass walls for confidential 1:1s, reviews, and deep focus.',
+      description: 'Stepping through the cabin portal engages line-of-sight raycast occlusion (-18dB attenuation with 420Hz low-pass frequency cutting). Private discussions stay strictly inside the cabin.',
+      specs: [
+        { label: 'ACOUSTIC ISOLATION', value: '-18 dB Low-Pass' },
+        { label: 'PRIVACY LEVEL', value: 'Enclosed Room' },
+        { label: 'IDEAL WORKFLOW', value: '1:1s & HR Syncs' },
+      ],
+      schematic: 'cabin',
+    },
+    {
+      id: 'lounge',
+      title: 'The Breakroom Lounge',
+      tag: 'SOCIAL AMBIENCE',
+      icon: Coffee,
+      headline: 'Spontaneous coffee chats and natural watercooler encounters.',
+      description: 'Reclaim serendipity in remote work. Grab a virtual seat while stepping away from deep work to share informal banter without disturbing focused builders in other zones.',
+      specs: [
+        { label: 'ACOUSTIC ISOLATION', value: 'Ambient Murmur' },
+        { label: 'CAPACITY', value: '12+ Teammates' },
+        { label: 'IDEAL WORKFLOW', value: 'Casual Breaks' },
+      ],
+      schematic: 'lounge',
+    },
+    {
+      id: 'studio',
+      title: 'Design Review Studio',
+      tag: 'BROADCAST PODIUM',
+      icon: Building2,
+      headline: 'Full-stage Figma reviews, architecture demos, and all-hands.',
+      description: 'Equipped with a broadcast podium for screen sharing and high-definition binaural audio. Present architecture blueprints to the entire office with zero streaming lag.',
+      specs: [
+        { label: 'ACOUSTIC ISOLATION', value: 'Stage Projection' },
+        { label: 'DISPLAY MODE', value: '60fps Screen Share' },
+        { label: 'IDEAL WORKFLOW', value: 'Sprint Demos' },
+      ],
+      schematic: 'studio',
+    },
+  ];
+
+  const COMPARISONS = [
+    {
+      feature: 'Starting a Conversation',
+      traditional: 'Schedule 30-min block, generate calendar invite, wait for link.',
+      proxispeak: 'Just walk your avatar over and start speaking naturally.',
+    },
+    {
+      feature: 'Concurrent Discussions',
+      traditional: 'Impossible. 1 speaker dominates while 12 people sit on mute.',
+      proxispeak: 'Multiple pods converse simultaneously without cross-talk.',
+    },
+    {
+      feature: 'Leaving a Conversation',
+      traditional: 'Awkward interruptions: "Sorry everyone, I need to jump off, bye!"',
+      proxispeak: 'Walk away organically. Voice volume gently fades out.',
+    },
+    {
+      feature: 'Audio Routing & Privacy',
+      traditional: 'Routed through cloud servers with corporate meeting logs.',
+      proxispeak: 'Direct encrypted P2P WebRTC mesh. Zero recordings or logs.',
+    },
+    {
+      feature: 'Acoustic Directionality',
+      traditional: 'Monophonic flat sound with zero distance or position cues.',
+      proxispeak: '360° HRTF stereo panning and raycast wall occlusion.',
+    },
+  ];
+
+  const FAQ_ITEMS = [
+    {
+      q: 'How does ProxiSpeak calculate audio distance attenuation?',
+      a: 'ProxiSpeak models acoustic falloff using an inverse Euclidean distance algorithm. When your avatar is within the 100px voice radius (approx. 6m), the Web Audio StereoPannerNode computes dynamic left/right ear panning in real time (60 FPS) based on relative avatar coordinates.',
+    },
+    {
+      q: 'Is voice, video, or screen-share data recorded on your servers?',
+      a: 'Never. ProxiSpeak leverages peer-to-peer WebRTC mesh data and audio channels secured with DTLS-SRTP AES-256 encryption. Voice packets stream directly browser-to-browser; no audio data is ever written to disk or recorded.',
+    },
+    {
+      q: 'How do walls and enclosed cabins block sound?',
+      a: 'The physics engine performs 2D line-segment ray intersection against all obstacle wall segments. If a wall interrupts the direct vector between two avatars, a dynamic Biquad low-pass filter (420 Hz cutoff) attenuates high frequencies and dampens volume by -18 dB.',
+    },
+    {
+      q: 'Do team members need to install a desktop app or plugin?',
+      a: 'No downloads required. ProxiSpeak runs 100% inside modern web browsers (Chrome, Edge, Safari, Firefox) utilizing standard HTML5 Canvas, WebRTC, and the Web Audio API.',
+    },
+    {
+      q: 'Can teammates still have quiet focus time without being interrupted?',
+      a: 'Absolutely. You can toggle your microphone mute anytime with a single key (`M`), step into an acoustic focus cabin, or toggle "Do Not Disturb" focus mode to visually signal deep heads-down work.',
+    },
+  ];
 
   return (
     <motion.main
@@ -1182,7 +1307,10 @@ function LandingPage({ onNavigate }) {
         <a className="landing-brand-link" href="/" aria-label="ProxiSpeak home"><Brand /></a>
         <nav className="landing-nav-links" aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
-          <a href="#your-office">Your office</a>
+          <a href="#engine-showcase-title">Architecture</a>
+          <a href="#office-pods">Office Pods</a>
+          <a href="#comparison">Compare</a>
+          <a href="#faq">FAQ</a>
         </nav>
         <div className="landing-nav-actions">
           <a className="landing-signin" href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
@@ -1213,7 +1341,10 @@ function LandingPage({ onNavigate }) {
               transition={{ duration: reducedMotion ? 0 : 0.18, ease: motionEase }}
             >
               <a href="#how-it-works" onClick={() => setMenuOpen(false)}>How it works</a>
-              <a href="#your-office" onClick={() => setMenuOpen(false)}>Your office</a>
+              <a href="#engine-showcase-title" onClick={() => setMenuOpen(false)}>Architecture</a>
+              <a href="#office-pods" onClick={() => setMenuOpen(false)}>Office Pods</a>
+              <a href="#comparison" onClick={() => setMenuOpen(false)}>Compare</a>
+              <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
               <a href={authHref('login')} onClick={navigateToAuth('login')}>Sign in</a>
               <a className="button button-primary landing-mobile-cta" href={authHref('register')} onClick={navigateToAuth('register')}>
                 Create your office <ArrowUpRight size={16} />
@@ -1271,7 +1402,7 @@ function LandingPage({ onNavigate }) {
         >
           <div className="landing-demo-header">
             <span><AudioLines size={16} /> THE COMMONS <i /> FLOOR 01</span>
-            <span className="landing-demo-badge">ILLUSTRATIVE DEMO</span>
+            <span className="landing-demo-badge">INTERACTIVE ACOUSTIC RADAR</span>
           </div>
           <div className="landing-map">
             <svg viewBox="0 0 760 450" role="img" aria-label={`Illustrative shared office. Maya is ${nearby ? 'within' : 'outside'} voice range. This is sample data, not a live team.`}>
@@ -1342,17 +1473,26 @@ function LandingPage({ onNavigate }) {
           <div className="landing-demo-controls">
             <div className="landing-demo-presets">
               <span className="demo-preset-label">RADAR PRESETS:</span>
-              <button type="button" className={`demo-preset-btn ${distance <= 25 ? 'active' : ''}`} onClick={() => setDistance(18)}>
+              <button type="button" className={`demo-preset-btn ${distance <= 25 ? 'active' : ''}`} onClick={() => handleSelectPreset(18)}>
                 🎙️ Huddle (1.8m)
               </button>
-              <button type="button" className={`demo-preset-btn ${distance > 25 && distance <= 50 ? 'active' : ''}`} onClick={() => setDistance(34)}>
+              <button type="button" className={`demo-preset-btn ${distance > 25 && distance <= 50 ? 'active' : ''}`} onClick={() => handleSelectPreset(34)}>
                 🤝 Desk Neighbor (3.4m)
               </button>
-              <button type="button" className={`demo-preset-btn ${distance > 50 && distance <= 80 ? 'active' : ''}`} onClick={() => setDistance(65)}>
+              <button type="button" className={`demo-preset-btn ${distance > 50 && distance <= 80 ? 'active' : ''}`} onClick={() => handleSelectPreset(65)}>
                 ☕ Across Pod (7.8m)
               </button>
-              <button type="button" className={`demo-preset-btn ${distance > 80 ? 'active' : ''}`} onClick={() => setDistance(92)}>
+              <button type="button" className={`demo-preset-btn ${distance > 80 ? 'active' : ''}`} onClick={() => handleSelectPreset(92)}>
                 🚪 Hallway (-24dB)
+              </button>
+              <button
+                type="button"
+                className={`demo-audio-trigger-btn ${isPlayingAudio ? 'is-playing' : ''}`}
+                onClick={() => handleTriggerAudio(distance)}
+                title="Click to hear how WebAudio attenuates volume and pans across ears at this distance"
+              >
+                <Play size={12} fill={isPlayingAudio ? '#1a1210' : 'currentColor'} />
+                <span>{isPlayingAudio ? 'Emitting Ping…' : 'Hear Spatial Audio Ping'}</span>
               </button>
             </div>
             <div className="demo-telemetry-hud">
@@ -1369,11 +1509,11 @@ function LandingPage({ onNavigate }) {
               <div className="telemetry-hud-item">
                 <span className="hud-label">SPATIAL EQUALIZER</span>
                 <div className="hud-equalizer" aria-hidden="true">
-                  <span className={nearby ? 'bar-active' : ''} />
-                  <span className={nearby ? 'bar-active' : ''} />
-                  <span className={nearby ? 'bar-active' : ''} />
-                  <span className={nearby ? 'bar-active' : ''} />
-                  <span className={nearby ? 'bar-active' : ''} />
+                  <span className={nearby || isPlayingAudio ? 'bar-active' : ''} />
+                  <span className={nearby || isPlayingAudio ? 'bar-active' : ''} />
+                  <span className={nearby || isPlayingAudio ? 'bar-active' : ''} />
+                  <span className={nearby || isPlayingAudio ? 'bar-active' : ''} />
+                  <span className={nearby || isPlayingAudio ? 'bar-active' : ''} />
                 </div>
               </div>
             </div>
@@ -1395,10 +1535,29 @@ function LandingPage({ onNavigate }) {
             />
             <span className="landing-range-label">FAR</span>
           </div>
-          <p className="landing-demo-caption">Interactive distance attenuation engine. Scrub slider or click presets to hear and see range response.</p>
+          <p className="landing-demo-caption">Interactive distance attenuation engine. Click presets or &quot;Hear Spatial Audio Ping&quot; to test binaural WebAudio falloff.</p>
         </motion.section>
       </section>
 
+      {/* Marquee Telemetry Strip */}
+      <div className="landing-marquee-strip" aria-label="ProxiSpeak technical telemetry">
+        <div className="marquee-content">
+          <span className="marquee-item"><Zap size={13} className="text-lavender" /> SUB-20MS PROXIMITY TICKS</span>
+          <span className="marquee-sep">✦</span>
+          <span className="marquee-item"><ShieldCheck size={13} className="text-lavender" /> 100% P2P WEBRTC MESH</span>
+          <span className="marquee-sep">✦</span>
+          <span className="marquee-item"><Headphones size={13} className="text-lavender" /> 360° BINAURAL HRTF EQUALIZATION</span>
+          <span className="marquee-sep">✦</span>
+          <span className="marquee-item"><Lock size={13} className="text-lavender" /> ZERO CLOUD AUDIO RECORDING</span>
+          <span className="marquee-sep">✦</span>
+          <span className="marquee-item"><Layers size={13} className="text-lavender" /> 2D RAYCAST WALL OCCLUSION (-18dB)</span>
+          <span className="marquee-sep">✦</span>
+          <span className="marquee-item"><Activity size={13} className="text-lavender" /> 60 FPS HARDWARE ACCELERATED CANVAS</span>
+          <span className="marquee-sep">✦</span>
+        </div>
+      </div>
+
+      {/* Acoustic Physics Architecture Showcase */}
       <section className="landing-engine-showcase" aria-labelledby="engine-showcase-title">
         <div className="engine-showcase-header">
           <div className="engine-pill"><Sparkles size={13} /> <span>ACOUSTIC PHYSICS ARCHITECTURE</span></div>
@@ -1433,6 +1592,123 @@ function LandingPage({ onNavigate }) {
         </div>
       </section>
 
+      {/* Interactive Office Pods Showcase */}
+      <section className="landing-pods-section" id="office-pods" aria-labelledby="pods-title">
+        <div className="pods-header">
+          <div className="engine-pill"><Layers size={13} /> <span>INTERACTIVE POD BLUEPRINTS</span></div>
+          <h2 id="pods-title">A floor layout designed for real work modes.</h2>
+          <p>Explore how different acoustic zones protect deep focus while keeping spontaneous team connections effortless.</p>
+          <div className="pods-tabs-nav" role="tablist">
+            {OFFICE_PODS.map((pod) => {
+              const IconComp = pod.icon;
+              return (
+                <button
+                  key={pod.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePod === pod.id}
+                  className={`pod-tab-btn ${activePod === pod.id ? 'active' : ''}`}
+                  onClick={() => setActivePod(pod.id)}
+                >
+                  <IconComp size={15} />
+                  <span>{pod.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {(() => {
+          const currentPod = OFFICE_PODS.find((p) => p.id === activePod) || OFFICE_PODS[0];
+          const IconComp = currentPod.icon;
+          return (
+            <div className="pod-spotlight-card">
+              <div className="pod-spotlight-info">
+                <div className="pod-tag-badge">
+                  <IconComp size={14} />
+                  <span>{currentPod.tag}</span>
+                </div>
+                <h3>{currentPod.headline}</h3>
+                <p>{currentPod.description}</p>
+                <div className="pod-specs-grid">
+                  {currentPod.specs.map((spec, i) => (
+                    <div key={i} className="pod-spec-item">
+                      <span className="spec-label">{spec.label}</span>
+                      <span className="spec-value">{spec.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="pod-spotlight-visual">
+                <div className="pod-schematic-box">
+                  <div className="schematic-radar-center">
+                    <div className="schematic-pulse-ring ring-1" />
+                    <div className="schematic-pulse-ring ring-2" />
+                    <div className="schematic-avatar-icon">
+                      <IconComp size={24} />
+                    </div>
+                  </div>
+                  <div className="schematic-boundary-tag">ZONE: {currentPod.title.toUpperCase()}</div>
+                  <div className="schematic-telemetry-pill">
+                    <span className="pill-dot" /> LIVE ACOUSTIC PROFILE
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* Comparison: ProxiSpeak vs Legacy Calls */}
+      <section className="landing-comparison-section" id="comparison" aria-labelledby="compare-title">
+        <div className="comparison-header">
+          <div className="engine-pill"><CheckCircle2 size={13} /> <span>THE PROXISPEAK ADVANTAGE</span></div>
+          <h2 id="compare-title">Why teams abandon scheduled video fatigue.</h2>
+          <p>Traditional video conferencing treats conversation like a formal event. ProxiSpeak makes it natural.</p>
+        </div>
+        <div className="comparison-table-wrapper">
+          <table className="comparison-table">
+            <thead>
+              <tr>
+                <th className="th-feature">TEAM EXPERIENCE</th>
+                <th className="th-legacy">
+                  <div className="th-header-cell text-muted">
+                    <XCircle size={16} className="text-red" />
+                    <span>LEGACY VIDEO MEETINGS (ZOOM / MEET)</span>
+                  </div>
+                </th>
+                <th className="th-proxi">
+                  <div className="th-header-cell text-lavender">
+                    <CheckCircle2 size={16} className="text-lavender" />
+                    <span>PROXISPEAK SPATIAL WORKSPACE</span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARISONS.map((row, idx) => (
+                <tr key={idx}>
+                  <td className="td-feature">{row.feature}</td>
+                  <td className="td-legacy">
+                    <div className="table-cell-content">
+                      <XCircle size={15} className="cell-icon icon-cross" />
+                      <span>{row.traditional}</span>
+                    </div>
+                  </td>
+                  <td className="td-proxi">
+                    <div className="table-cell-content">
+                      <CheckCircle2 size={15} className="cell-icon icon-check" />
+                      <span>{row.proxispeak}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* How it Works Section */}
       <section className="landing-how" id="how-it-works" aria-labelledby="landing-how-title">
         <div className="landing-how-heading">
           <h2 id="landing-how-title">A room that makes the next conversation easier.</h2>
@@ -1441,7 +1717,7 @@ function LandingPage({ onNavigate }) {
         <div className="landing-how-steps">
           <article>
             <span>01</span>
-            <div><h3>See who's around.</h3><p>Your team shares one live office map, so presence has a place.</p></div>
+            <div><h3>See who&apos;s around.</h3><p>Your team shares one live office map, so presence has a place.</p></div>
             <Users size={20} aria-hidden="true" />
           </article>
           <article>
@@ -1457,6 +1733,47 @@ function LandingPage({ onNavigate }) {
         </div>
       </section>
 
+      {/* Technical FAQ Accordion */}
+      <section className="landing-faq-section" id="faq" aria-labelledby="faq-title">
+        <div className="faq-header">
+          <div className="engine-pill"><Sparkles size={13} /> <span>ARCHITECTURE &amp; PRIVACY</span></div>
+          <h2 id="faq-title">Frequently asked technical questions.</h2>
+          <p>Everything you need to know about the WebRTC mesh, spatial audio physics, and workspace security.</p>
+        </div>
+        <div className="faq-accordion-container">
+          {FAQ_ITEMS.map((item, idx) => {
+            const isOpen = openFaq === idx;
+            return (
+              <div key={idx} className={`faq-card ${isOpen ? 'open' : ''}`}>
+                <button
+                  type="button"
+                  className="faq-question-btn"
+                  onClick={() => setOpenFaq(isOpen ? null : idx)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="faq-q-text">{item.q}</span>
+                  <ChevronDown size={18} className={`faq-chevron ${isOpen ? 'rotated' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {isOpen && (
+                    <motion.div
+                      className="faq-answer-pane"
+                      initial={reducedMotion ? false : { opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={reducedMotion ? undefined : { opacity: 0, height: 0 }}
+                      transition={{ duration: 0.22, ease: motionEase }}
+                    >
+                      <p>{item.a}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Close Call to Action */}
       <section className="landing-close" id="your-office" aria-labelledby="landing-close-title">
         <div>
           <h2 id="landing-close-title">Make room for the conversations in between.</h2>
