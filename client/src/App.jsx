@@ -8,6 +8,7 @@ const AUDIO_RANGE = 300;
 
 export default function App() {
   const socketRef = useRef(null);
+  const officeRef = useRef(null);
   const micStreamRef = useRef(null);
   const peersRef = useRef({});
   const audioElementsRef = useRef({});
@@ -492,9 +493,14 @@ export default function App() {
     else if (direction === "right") x += step;
     else return;
 
+    // Keep the avatar inside the actual workspace, even on smaller screens.
+    const office = officeRef.current;
+    const maxX = office ? Math.max(20, office.clientWidth - 60) : 700;
+    const maxY = office ? Math.max(20, office.clientHeight - 70) : 350;
+
     const next = {
-      x: Math.max(20, Math.min(700, x)),
-      y: Math.max(20, Math.min(350, y))
+      x: Math.max(10, Math.min(maxX, x)),
+      y: Math.max(10, Math.min(maxY, y))
     };
 
     positionRef.current = next;
@@ -703,7 +709,7 @@ export default function App() {
         )}
       </section>
 
-      <section className="office">
+      <section className="office" ref={officeRef}>
         <div className="desk desk-one">💻 Desk 1</div>
         <div className="desk desk-two">💻 Desk 2</div>
         <div className="desk desk-three">🪴 Lounge</div>

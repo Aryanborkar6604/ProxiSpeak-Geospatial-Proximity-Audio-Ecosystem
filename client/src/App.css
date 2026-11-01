@@ -1,237 +1,61 @@
-/* =================================
-   ProxiSpeak - Virtual Office
-   ================================= */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
-* {
-  box-sizing: border-box;
+:root {
+  font-family: 'DM Sans', sans-serif;
+  color: #e8eefb;
+  background: #080d19;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --surface: #111a2b;
+  --surface-2: #162238;
+  --line: rgba(164, 185, 220, .16);
+  --muted: #9baac4;
+  --blue: #6c8cff;
+  --blue-strong: #4f6ff0;
+  --green: #36d6a0;
 }
 
-html {
-  min-width: 320px;
-  min-height: 100%;
-}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(ellipse at 12% 0%, rgba(53, 83, 165, .20), transparent 36%), radial-gradient(ellipse at 100% 20%, rgba(35, 157, 157, .10), transparent 28%), #080d19; }
+button, input { font: inherit; }
+button { cursor: pointer; transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease; }
+button:focus-visible { outline: 3px solid rgba(108, 140, 255, .55); outline-offset: 3px; }
 
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  font-family: "Segoe UI", Arial, sans-serif;
-  background: #f1f5f9;
-  color: #1e293b;
-}
+#root { min-height: 100vh; }
+.app { width: min(1500px, calc(100% - 48px)); margin: 0 auto; padding: 28px 0 24px; display: grid; grid-template-columns: minmax(310px, 365px) minmax(0, 1fr); align-items: start; gap: 22px; }
+.topbar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 26px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(115deg, rgba(20, 32, 54, .96), rgba(14, 24, 42, .92)); box-shadow: 0 18px 50px rgba(0, 0, 0, .20); }
+.topbar h1 { margin: 0; font: 800 25px/1.2 'Manrope', sans-serif; letter-spacing: -.8px; color: #f5f8ff; }
+.topbar h1::first-letter { color: #8ea5ff; }
+.topbar > span { color: #aab9d2; font-size: 13px; letter-spacing: .15px; }
 
-#root {
-  width: 100%;
-  min-height: 100vh;
-}
+.welcome { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(155deg, rgba(20, 31, 51, .98), rgba(13, 22, 38, .98)); box-shadow: 0 20px 50px rgba(0, 0, 0, .18); }
+.welcome h2 { margin: 0 0 8px; font: 800 22px/1.25 'Manrope', sans-serif; letter-spacing: -.55px; color: #f4f7ff; }
+.welcome > p:first-of-type { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.welcome p { color: #b7c4d9; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.welcome p strong { color: #f3f6ff; font-weight: 700; }
+.welcome button { min-height: 42px; margin: 5px 6px 5px 0; padding: 10px 14px; border: 1px solid rgba(139, 161, 205, .25); border-radius: 11px; color: #eaf0ff; background: #1b2942; font-size: 12px; font-weight: 700; }
+.welcome button:hover { transform: translateY(-1px); background: #263a5d; border-color: rgba(139, 161, 255, .55); box-shadow: 0 7px 18px rgba(0, 0, 0, .15); }
+.welcome button:first-of-type { color: white; background: linear-gradient(135deg, #647ff5, #4865dc); border-color: transparent; }
+.welcome button:first-of-type:hover { background: linear-gradient(135deg, #7790ff, #5975ed); }
+.welcome button[aria-label="Move up"], .welcome button[aria-label="Move down"], .welcome button[aria-label="Move left"], .welcome button[aria-label="Move right"] { margin: 0; width: 48px; height: 42px; padding: 0; color: #dbe5ff; background: #202f4b; border: 1px solid #3a4d72; border-radius: 10px; font-size: 19px; }
+.welcome button[aria-label="Move up"]:hover, .welcome button[aria-label="Move down"]:hover, .welcome button[aria-label="Move left"]:hover, .welcome button[aria-label="Move right"]:hover { background: #304773; }
+.welcome [role="alert"] { padding: 10px 12px; color: #fecaca !important; background: rgba(127, 29, 29, .25); border: 1px solid rgba(248, 113, 113, .32); border-radius: 9px; }
+.welcome [aria-label="Avatar movement controls"] { padding: 12px; width: max-content; border: 1px solid var(--line); border-radius: 15px; background: rgba(5, 10, 20, .24); }
 
-/* Main application */
-.app {
-  width: 100%;
-  max-width: 1400px;
-  min-height: 100vh;
-  margin: 0 auto;
-  padding: 24px;
-  outline: none;
-}
+.office { position: relative; width: 100%; height: 620px; min-height: 350px; overflow: hidden; isolation: isolate; background-color: #111e30; background-image: linear-gradient(rgba(127, 154, 194, .075) 1px, transparent 1px), linear-gradient(90deg, rgba(127, 154, 194, .075) 1px, transparent 1px), radial-gradient(ellipse at 50% 50%, rgba(44, 74, 116, .22), transparent 70%); background-size: 30px 30px, 30px 30px, auto; border: 1px solid rgba(147, 170, 212, .22); border-radius: 22px; box-shadow: inset 0 0 0 7px rgba(255,255,255,.012), 0 20px 50px rgba(0, 0, 0, .2); }
+.office::before { content: 'VIRTUAL WORKSPACE'; position: absolute; top: 18px; left: 20px; z-index: 0; color: rgba(179, 198, 229, .55); font-size: 10px; font-weight: 700; letter-spacing: 2px; pointer-events: none; }
+.desk { position: absolute; display: flex; align-items: center; justify-content: center; min-width: 100px; min-height: 52px; padding: 10px 14px; color: #c9d6eb; background: linear-gradient(145deg, #1e2d43, #172438); border: 1px solid #344760; border-radius: 13px; box-shadow: 0 9px 20px rgba(0,0,0,.18); font-size: 12px; font-weight: 700; }
+.desk-one { top: 62px; left: 24px; }
+.desk-two { top: 62px; right: 24px; }
+.desk-three { right: 24px; bottom: 24px; background: linear-gradient(145deg, #143d3b, #142f35); border-color: #28665d; color: #9af0d5; }
+.avatar { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 46px; min-height: 58px; padding: 3px; border: 2px solid #b6c6ff; border-radius: 15px; background: linear-gradient(145deg, #394f94, #243b75); box-shadow: 0 0 0 5px rgba(108, 140, 255, .11), 0 8px 18px rgba(0,0,0,.24); font-size: 23px; transition: left .15s ease, top .15s ease; }
+.avatar span { max-width: 84px; margin-top: 2px; padding: 4px 7px; overflow: hidden; color: #f7f9ff; background: #304b9d; border: 1px solid rgba(176, 194, 255, .25); border-radius: 6px; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.remote-avatar { background: linear-gradient(145deg, #986d36, #604624); border-color: #f2d2a0; box-shadow: 0 0 0 5px rgba(240, 185, 98, .10), 0 8px 18px rgba(0,0,0,.24); }
+.remote-avatar span { background: #735126; border-color: rgba(255, 222, 169, .25); }
+footer { grid-column: 1 / -1; max-width: 900px; margin: 0 auto; color: #71819c; font-size: 11px; line-height: 1.8; text-align: center; }
 
-/* Header */
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  padding: 18px 24px;
-  color: #ffffff;
-  background: linear-gradient(135deg, #172554, #334b91);
-  border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(23, 37, 84, 0.14);
-}
-
-.topbar h1 {
-  margin: 0;
-  color: #ffffff;
-  font-size: clamp(24px, 3vw, 36px);
-}
-
-/* Welcome and status section */
-.welcome {
-  margin: 28px auto 24px;
-  text-align: center;
-  line-height: 1.6;
-}
-
-.welcome h2 {
-  margin: 0 0 8px;
-  color: #172554;
-  font-size: clamp(20px, 2.5vw, 28px);
-}
-
-.welcome p {
-  margin: 6px 0;
-}
-
-/* Buttons */
-button {
-  border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
-}
-
-button:focus-visible {
-  outline: 3px solid #60a5fa;
-  outline-offset: 3px;
-}
-
-/* Virtual office */
-.office {
-  position: relative;
-  width: 100%;
-  max-width: 900px;
-  height: 420px;
-  margin: 24px auto;
-  overflow: hidden;
-  border: 5px solid #cbd5e1;
-  border-radius: 18px;
-  background-color: #e8f0df;
-  background-image:
-    linear-gradient(#ffffff70 1px, transparent 1px),
-    linear-gradient(90deg, #ffffff70 1px, transparent 1px);
-  background-size: 40px 40px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-}
-
-/* Office desks */
-.desk {
-  position: absolute;
-  padding: 14px 18px;
-  background: #d6b795;
-  border: 1px solid #94704f;
-  border-radius: 9px;
-  font-weight: 600;
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
-}
-
-.desk-one {
-  top: 24px;
-  left: 24px;
-}
-
-.desk-two {
-  top: 24px;
-  right: 24px;
-}
-
-.desk-three {
-  right: 24px;
-  bottom: 24px;
-  background: #bbd7b0;
-}
-
-/* User avatars */
-.avatar {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  font-size: 32px;
-  user-select: none;
-  transition: left 0.08s linear, top 0.08s linear;
-}
-
-.avatar span {
-  padding: 4px 8px;
-  color: #ffffff;
-  background: #172554;
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Footer instructions */
-footer {
-  max-width: 900px;
-  margin: 20px auto 0;
-  color: #475569;
-  font-size: 14px;
-  line-height: 1.7;
-  text-align: center;
-}
-
-/* Other text and indicators */
-p {
-  line-height: 1.6;
-}
-
-/* Responsive design */
-@media (max-width: 600px) {
-  .app {
-    padding: 12px;
-  }
-
-  .topbar {
-    padding: 14px;
-    gap: 10px;
-  }
-
-  .topbar h1 {
-    font-size: 24px;
-  }
-
-  .welcome {
-    margin: 20px auto;
-  }
-
-  .office {
-    height: 360px;
-    border-width: 4px;
-    border-radius: 12px;
-    background-size: 30px 30px;
-  }
-
-  .desk {
-    padding: 9px 11px;
-    font-size: 12px;
-  }
-
-  .desk-one {
-    top: 14px;
-    left: 12px;
-  }
-
-  .desk-two {
-    top: 14px;
-    right: 12px;
-  }
-
-  .desk-three {
-    right: 12px;
-    bottom: 14px;
-  }
-
-  .avatar {
-    font-size: 27px;
-  }
-
-  .avatar span {
-    padding: 3px 6px;
-    font-size: 10px;
-  }
-
-  footer {
-    font-size: 12px;
-  }
-}
+@media (min-width: 1500px) { .office { height: 680px; } }
+@media (max-width: 980px) { .app { grid-template-columns: minmax(0, 1fr); width: min(820px, calc(100% - 32px)); gap: 16px; } .topbar { grid-column: auto; } .welcome { order: 2; } .office { order: 3; height: 560px; } footer { order: 4; grid-column: auto; } }
+@media (max-width: 600px) { .app { width: calc(100% - 20px); margin: 10px auto 22px; padding-top: 4px; gap: 12px; } .topbar { align-items: flex-start; flex-direction: column; padding: 17px; border-radius: 15px; gap: 7px; } .topbar h1 { font-size: 22px; } .topbar > span { font-size: 11px; line-height: 1.5; } .welcome { padding: 18px 14px; border-radius: 16px; } .welcome h2 { font-size: 20px; } .welcome > p:first-of-type { font-size: 12px; } .welcome p { font-size: 12px; } .office { height: 430px; min-height: 320px; border-radius: 16px; } .office::before { top: 12px; left: 13px; font-size: 8px; letter-spacing: 1.4px; } .desk { min-width: auto; min-height: 42px; padding: 8px; font-size: 10px; border-radius: 9px; } .desk-one { top: 40px; left: 12px; } .desk-two { top: 40px; right: 12px; } .desk-three { right: 12px; bottom: 12px; } .avatar { transform: scale(.9); transform-origin: top left; } .welcome button { font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; } }
