@@ -4,6 +4,10 @@ import { io } from 'socket.io-client';
 import './styles.css';
 
 const W = 1000, H = 660, RANGE = 70;
+const spatialGain = distance => {
+  const proximity = Math.max(0, Math.min(1, 1 - distance / RANGE));
+  return proximity === 0 ? 0 : 0.25 + 0.75 * proximity;
+};
 const ICE_SERVERS = (() => {
   try { return JSON.parse(import.meta.env.VITE_ICE_SERVERS || '[{"urls":"stun:stun.l.google.com:19302"}]'); }
   catch { return [{ urls: 'stun:stun.l.google.com:19302' }]; }
@@ -153,7 +157,7 @@ function App() {
     source.connect(gain).connect(panner).connect(context.destination); spatialNodesRef.current.set(id, { source, gain, panner });
     const person = peers.find(item => item.id === id), current = meRef.current;
     const distance = person && current ? Math.hypot(person.x - current.x, person.y - current.y) : RANGE;
-    gain.gain.value = muted ? 0 : Math.max(0, 1 - distance / RANGE) ** 1.45;
+    gain.gain.value = muted ? 0 : spatialGain(distance);
   }
   function attachSpatialAudio(id, stream) { remoteStreamsRef.current.set(id, stream); connectSpatialAudio(id, stream); }
   useEffect(() => {
@@ -167,7 +171,7 @@ function App() {
     const context = audioRef.current?.context; if (!context || context.state === 'closed') return;
     for (const [id, nodes] of spatialNodesRef.current) {
       const p = peers.find(person => person.id === id); if (!p) continue;
-      const dx = p.x - me.x, dy = p.y - me.y, distance = Math.hypot(dx, dy); const gain = Math.max(0, 1 - distance / RANGE) ** 1.45;
+      const dx = p.x - me.x, dy = p.y - me.y, distance = Math.hypot(dx, dy); const gain = spatialGain(distance);
       nodes.gain.gain.setTargetAtTime(muted ? 0 : gain, context.currentTime, .12); nodes.panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, dx / RANGE)), context.currentTime, .12);
     }
   }, [me?.x, me?.y, peers, muted, soundReady]);
@@ -202,7 +206,14 @@ function App() {
     try {
       // This must be called directly from a user click so the browser can grant
       // permission and reveal the device to the page.
-      const device = await mediaDevices.selectAudioOutput(audioOutputId ? { deviceId: audioOutputId } : undefined);
+      let device;
+      try { device = await mediaDevices.selectAudioOutput(audioOutputId ? { deviceId: audioOutputId } : undefined); }
+      catch (err) {
+        if (!audioOutputId || err?.name === 'AbortError') throw err;
+        // Stored device IDs can rotate between browser sessions; reopen the
+        // picker without the stale ID so the user can choose the speaker again.
+        device = await mediaDevices.selectAudioOutput();
+      }
       setAudioOutputs(await mediaDevices.enumerateDevices().then(devices => devices.filter(item => item.kind === 'audiooutput')));
       setAudioOutputId(device.deviceId);
       try { localStorage.setItem('proxispeak.audioOutput', device.deviceId); } catch {}
@@ -234,7 +245,7 @@ function App() {
     if (!context) { setAudioOutputError('Choose a speaker with the button below. Sound will start when you enable office sound.'); return; }
     if (typeof context.setSinkId !== 'function') { setAudioOutputError('This browser cannot route Web Audio to a selected speaker. Set your external speaker as the system output.'); return; }
     try { await context.setSinkId(deviceId); setAudioOutputError(''); notify('Office audio is now routed to the selected output.'); }
-    catch (err) { setAudioOutputError(err?.name === 'NotAllowedError' ? 'The browser blocked speaker selection. Allow this site to select audio output.' : 'Could not switch speaker. Choose the system default and try again.'); }
+    catch (err) { setAudioOutputError(err?.name === 'NotAllowedError' ? 'The browser blocked speaker selection. Allow this site to select audio output.' : 'That speaker is unavailable. Click Choose speaker… to grant permission again.'); }
   }
   async function toggleSoundSetting() {
     if (!soundReady && muted) {
