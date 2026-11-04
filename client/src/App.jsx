@@ -12,8 +12,9 @@ import {
   Share2, ShieldCheck, SlidersHorizontal, Sparkles, Sun, UserPlus, Users, Volume2, VolumeX, Wifi, X, XCircle, Zap,
 } from 'lucide-react';
 import OfficeCanvas from './components/OfficeCanvas';
+import { isInsideManagerCabin } from './utils/officeBounds';
 import SlidableWorkspaceMenu from './components/SlidableWorkspaceMenu';
-import { playSpatialPing, toggleAmbientSound, playProximityPreview } from './utils/audioFx';
+import { playSpatialPing, toggleAmbientSound, playProximityPreview, playDoorKnock } from './utils/audioFx';
 import deviceCache from './utils/deviceCache';
 
 const initials = (value = 'User') => value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -181,6 +182,10 @@ function App() {
   });
 
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [hasManagerPermission, setHasManagerPermission] = useState(false);
+  const [incomingKnock, setIncomingKnock] = useState(null);
+  const [isKnocking, setIsKnocking] = useState(false);
+  const [managerBlockedInfo, setManagerBlockedInfo] = useState(null);
 
   useEffect(() => {
     document.body.classList.toggle('server-busy', serverBusy);
@@ -305,6 +310,49 @@ function App() {
         deviceCache.saveOffice(currentOfficeId, next);
         return next;
       });
+    });
+
+    nextSocket.on('manager:knock_request', (data) => {
+      const cached = deviceCache.loadPosition(currentOfficeId, userId);
+      const curX = cached ? cached.x : localCoords.x;
+      const curY = cached ? cached.y : localCoords.y;
+      if (isInsideManagerCabin(curX, curY)) {
+        playDoorKnock();
+        setIncomingKnock({
+          requesterId: data.requesterId,
+          requesterName: data.requesterName || 'A teammate',
+        });
+        toast.info(`🚪 Knock Knock! ${data.requesterName || 'A teammate'} is requesting entry to the Manager Cabin.`);
+      }
+    });
+
+    nextSocket.on('manager:entry_approved', (data) => {
+      if (data.requesterId === userId) {
+        setHasManagerPermission(true);
+        setIsKnocking(false);
+        setManagerBlockedInfo(null);
+        playDoorKnock();
+        toast.success(`✅ ${data.approvedBy || 'The occupants'} granted you permission to enter the Manager Cabin!`);
+      }
+    });
+
+    nextSocket.on('manager:entry_denied', (data) => {
+      if (data.requesterId === userId) {
+        setIsKnocking(false);
+        setManagerBlockedInfo(null);
+        toast.error(`❌ Entry declined by ${data.deniedBy || 'the occupants'}. The cabin is in private session.`);
+      }
+    });
+
+    nextSocket.on('manager:knock_sent', (data) => {
+      setIsKnocking(true);
+      toast.info(data.message || 'Knocked on the Manager Cabin door. Waiting for occupants...');
+    });
+
+    nextSocket.on('manager:entry_blocked', (data) => {
+      playDoorKnock();
+      setManagerBlockedInfo({ occupants: data.occupants || [] });
+      toast.warning(data.message || 'Manager Cabin is occupied (2/2). Knock to request entry.');
     });
 
     nextSocket.on('auth:expired', () => {
@@ -436,6 +484,44 @@ function App() {
     deviceCache.savePosition(currentOfficeId, userId, myPos);
     updateSpatialAudio(myPos, curPeers, officeState?.hearingRadiusPx || 100);
   }, [currentOfficeId, userId, updateSpatialAudio, officeState?.hearingRadiusPx]);
+
+  const handleKnockManagerDoor = useCallback(() => {
+    if (!socket) return;
+    playDoorKnock();
+    setIsKnocking(true);
+    socket.emit('manager:knock', { officeId: currentOfficeId });
+  }, [socket, currentOfficeId]);
+
+  const handleApproveKnock = useCallback(() => {
+    if (!socket || !incomingKnock) return;
+    socket.emit('manager:approve_entry', {
+      officeId: currentOfficeId,
+      requesterId: incomingKnock.requesterId,
+    });
+    toast.success(`Allowed ${incomingKnock.requesterName} into the Manager Cabin.`);
+    setIncomingKnock(null);
+  }, [socket, currentOfficeId, incomingKnock]);
+
+  const handleDenyKnock = useCallback(() => {
+    if (!socket || !incomingKnock) return;
+    socket.emit('manager:deny_entry', {
+      officeId: currentOfficeId,
+      requesterId: incomingKnock.requesterId,
+    });
+    toast.info(`Declined entry for ${incomingKnock.requesterName}.`);
+    setIncomingKnock(null);
+  }, [socket, currentOfficeId, incomingKnock]);
+
+  const handleBlockedManagerEntry = useCallback((occupants) => {
+    playDoorKnock();
+    setManagerBlockedInfo({ occupants: occupants || [] });
+    toast.warning('🚪 Manager Cabin is occupied (2/2). You need permission from inside to enter.', {
+      action: {
+        label: '🚪 Knock',
+        onClick: handleKnockManagerDoor,
+      },
+    });
+  }, [handleKnockManagerDoor]);
 
   const closestPeerInfo = useMemo(() => {
     const peerEntries = Object.entries(peers);
@@ -840,6 +926,21 @@ function App() {
                     className="room-pill-btn"
                     onClick={() => {
                       const pos = { x: 835, y: 145 };
+                      const isCurrentlyInManager = isInsideManagerCabin(localCoords.x, localCoords.y);
+                      if (!isCurrentlyInManager) {
+                        let peersInManagerCount = 0;
+                        const occupants = [];
+                        Object.values(peers).forEach((p) => {
+                          if (p && isInsideManagerCabin(p.x, p.y)) {
+                            peersInManagerCount += 1;
+                            occupants.push(p.name || 'Teammate');
+                          }
+                        });
+                        if (peersInManagerCount >= 2 && !hasManagerPermission) {
+                          handleBlockedManagerEntry(occupants);
+                          return;
+                        }
+                      }
                       if (socket) socket.emit('player:move', pos);
                       handlePositionChange(pos, peers);
                       toast.info('Teleported to Manager Cabin');
@@ -881,6 +982,81 @@ function App() {
               </div>
             </div>
             <div className="office-map-wrap">
+              {/* Manager Cabin Incoming Knock Permission Dialog (for avatars inside) */}
+              <AnimatePresence>
+                {incomingKnock && (
+                  <motion.div
+                    className="manager-knock-banner"
+                    initial={{ opacity: 0, y: -16, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -16, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <div className="knock-banner-badge">
+                      <span className="knock-icon-pulse">🚪</span>
+                      <div className="knock-banner-text">
+                        <strong>Knock Knock! Request to Enter</strong>
+                        <p><span>{incomingKnock.requesterName}</span> is outside the Manager Cabin and asks permission to enter.</p>
+                      </div>
+                    </div>
+                    <div className="knock-banner-actions">
+                      <button type="button" className="btn-knock-allow" onClick={handleApproveKnock}>
+                        <Check size={14} /> Allow Entry
+                      </button>
+                      <button type="button" className="btn-knock-deny" onClick={handleDenyKnock}>
+                        <X size={14} /> Decline
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Manager Cabin Blocked Entry Dialog (for avatars outside) */}
+              <AnimatePresence>
+                {managerBlockedInfo && !hasManagerPermission && (
+                  <motion.div
+                    className="manager-blocked-banner"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <div className="blocked-banner-info">
+                      <Lock size={16} className="text-amber" />
+                      <div>
+                        <strong>Manager Cabin is at Capacity (2/2)</strong>
+                        <p>Occupied by {managerBlockedInfo.occupants?.length > 0 ? managerBlockedInfo.occupants.join(' & ') : '2 teammates'}. Permission is required to enter.</p>
+                      </div>
+                    </div>
+                    <div className="blocked-banner-actions">
+                      <button
+                        type="button"
+                        className="btn-knock-request"
+                        disabled={isKnocking}
+                        onClick={handleKnockManagerDoor}
+                      >
+                        {isKnocking ? 'Waiting for response…' : '🚪 Knock to Request Entry'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-knock-dismiss"
+                        onClick={() => setManagerBlockedInfo(null)}
+                        title="Dismiss"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {hasManagerPermission && (
+                <div className="manager-permission-badge">
+                  <span className="permission-indicator-dot" />
+                  <span>MANAGER CABIN: ACCESS GRANTED</span>
+                </div>
+              )}
+
               <OfficeCanvas 
                 socket={socket}
                 officeState={officeState}
@@ -895,6 +1071,8 @@ function App() {
                 isMuted={muted}
                 peerAttenuations={peerAttenuations}
                 isDarkMode={isDarkMode}
+                hasManagerPermission={hasManagerPermission}
+                onBlockedManagerEntry={handleBlockedManagerEntry}
               />
             </div>
             <div className="map-bottomline">

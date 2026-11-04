@@ -4275,3 +4275,214 @@ body.server-busy * { cursor: progress !important; }
   }
 }
 
+/* ============================================================
+   MANAGER CABIN 2-AVATAR CAPACITY & KNOCK PERMISSION SYSTEM
+   ============================================================ */
+
+/* Incoming Knock Request Banner (Visible to occupants inside Manager Cabin) */
+.manager-knock-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: min(92%, 520px);
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(38, 28, 25, 0.95) 0%, rgba(26, 18, 16, 0.95) 100%);
+  border: 1px solid rgba(216, 206, 255, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 24px rgba(196, 181, 253, 0.2);
+  backdrop-filter: blur(12px);
+  animation: knock-glow 1.5s infinite alternate ease-in-out;
+}
+
+@keyframes knock-glow {
+  0% { box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 16px rgba(196, 181, 253, 0.2); }
+  100% { box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 28px rgba(196, 181, 253, 0.45); }
+}
+
+.knock-banner-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.knock-icon-pulse {
+  font-size: 22px;
+  animation: knock-wiggle 0.5s infinite alternate ease-in-out;
+}
+@keyframes knock-wiggle {
+  0% { transform: rotate(-8deg); }
+  100% { transform: rotate(8deg); }
+}
+.knock-banner-text strong {
+  display: block;
+  font: 700 13px 'Manrope', sans-serif;
+  color: #f8f7fc;
+  margin-bottom: 2px;
+}
+.knock-banner-text p {
+  margin: 0;
+  font: 500 11.5px/1.3 'Manrope', sans-serif;
+  color: #d0cbdc;
+}
+.knock-banner-text span {
+  color: #c4b5fd;
+  font-weight: 700;
+}
+.knock-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn-knock-allow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.2) 0%, rgba(16, 185, 129, 0.3) 100%);
+  color: #34d399;
+  font: 700 11.5px 'Manrope', sans-serif;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.btn-knock-allow:hover {
+  background: #34d399;
+  color: #0d1f18;
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.4);
+  transform: translateY(-1px);
+}
+.btn-knock-deny {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font: 700 11.5px 'Manrope', sans-serif;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.btn-knock-deny:hover {
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+  transform: translateY(-1px);
+}
+
+/* Blocked Entry Dialog (Visible to outside avatar attempting to enter) */
+.manager-blocked-banner {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: min(92%, 560px);
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(38, 25, 22, 0.96) 0%, rgba(24, 16, 14, 0.96) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(245, 158, 11, 0.2);
+  backdrop-filter: blur(12px);
+}
+.blocked-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.blocked-banner-info strong {
+  display: block;
+  font: 700 13px 'Manrope', sans-serif;
+  color: #f8f7fc;
+  margin-bottom: 2px;
+}
+.blocked-banner-info p {
+  margin: 0;
+  font: 500 11.5px/1.3 'Manrope', sans-serif;
+  color: #d0cbdc;
+}
+.blocked-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn-knock-request {
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: linear-gradient(135deg, #faf9fc 0%, #ebe7f6 45%, #d8d0f3 100%);
+  color: #1a1210;
+  font: 800 11.5px 'Manrope', sans-serif;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 14px rgba(216, 206, 255, 0.3);
+}
+.btn-knock-request:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 18px rgba(216, 206, 255, 0.5);
+}
+.btn-knock-request:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-knock-dismiss {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #b5b0c4;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.btn-knock-dismiss:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* Access Granted Floating Pill */
+.manager-permission-badge {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(20, 35, 28, 0.85);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: #34d399;
+  font: 800 10px 'Manrope', sans-serif;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.25);
+  backdrop-filter: blur(8px);
+}
+.permission-indicator-dot {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+.text-amber {
+  color: #f59e0b !important;
+}
+
+

@@ -160,3 +160,40 @@ export function playProximityPreview(distance = 18) {
   });
 }
 
+/**
+ * Plays a realistic wooden door knock sound effect (3 percussive taps).
+ */
+export function playDoorKnock() {
+  const ctx = getCtx();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  const taps = [0, 0.11, 0.23];
+
+  taps.forEach((delay) => {
+    const tapTime = now + delay;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(190, tapTime);
+    osc.frequency.exponentialRampToValueAtTime(70, tapTime + 0.045);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(450, tapTime);
+
+    gain.gain.setValueAtTime(0.001, tapTime);
+    gain.gain.linearRampToValueAtTime(0.22, tapTime + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, tapTime + 0.055);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(tapTime);
+    osc.stop(tapTime + 0.06);
+  });
+}
+
+

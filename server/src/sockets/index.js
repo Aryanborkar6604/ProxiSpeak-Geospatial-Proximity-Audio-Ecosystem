@@ -54,6 +54,32 @@ function arePeersSignalingEligible(userId, targetUserId, officeId) {
   return false;
 }
 
+function isInsideManagerCabin(x, y) {
+  return x >= 705 && x <= 965 && y >= 35 && y <= 255;
+}
+
+// In-memory storage for Manager Cabin entry permissions: officeId -> Map<userId, expiresAt>
+const managerCabinPermissions = new Map();
+
+function hasManagerPermission(officeId, uid) {
+  const officePerms = managerCabinPermissions.get(officeId);
+  if (!officePerms) return false;
+  const expiresAt = officePerms.get(uid);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    officePerms.delete(uid);
+    return false;
+  }
+  return true;
+}
+
+function grantManagerPermission(officeId, uid, durationMs = 15 * 60 * 1000) {
+  if (!managerCabinPermissions.has(officeId)) {
+    managerCabinPermissions.set(officeId, new Map());
+  }
+  managerCabinPermissions.get(officeId).set(uid, Date.now() + durationMs);
+}
+
 async function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
   const officeId = socket.data.officeId;
   if (!officeId || !arePeersSignalingEligible(socket.data.userId, targetUserId, officeId)) return;
@@ -172,6 +198,31 @@ function socketHandler(io) {
         const office = officeService.getCachedOffice(officeId);
         if (!office || x < 0 || y < 0 || x > office.width || y > office.height) return;
 
+        // Check Manager Cabin capacity restriction:
+        // If 2 or more avatars are already inside, outside avatars cannot enter without permission.
+        const isTargetInManager = isInsideManagerCabin(x, y);
+        if (isTargetInManager) {
+          const activePositions = positionService.getActivePositionsForOffice(officeId);
+          const currentPos = activePositions.find((p) => p.userId === userId);
+          const wasInside = currentPos?.location && isInsideManagerCabin(currentPos.location[0], currentPos.location[1]);
+
+          if (!wasInside) {
+            // User is attempting to enter from outside
+            const occupantsInManager = activePositions.filter(
+              (p) => p.userId !== userId && p.location && isInsideManagerCabin(p.location[0], p.location[1])
+            );
+
+            if (occupantsInManager.length >= 2 && !hasManagerPermission(officeId, userId)) {
+              socket.emit('manager:entry_blocked', {
+                message: 'Manager Cabin is occupied (2/2). You need permission from the occupants to enter.',
+                occupants: occupantsInManager.map((o) => o.name || 'Occupant'),
+                count: occupantsInManager.length,
+              });
+              return;
+            }
+          }
+        }
+
         // Instant zero-delay broadcast to other clients in room
         socket.to(officeId).emit('player:moved', { userId, name: socket.data.userName, x, y });
 
@@ -183,6 +234,104 @@ function socketHandler(io) {
         console.error('player:move error', err);
       }
     });
+
+    // Manager Cabin Knocking & Permission Signaling
+    socket.on('manager:knock', async (payload) => {
+      try {
+        if (!allowSocketEvent(socket, 'manager:knock', { windowMs: 10_000, max: 5 })) return;
+        const officeId = socket.data.officeId || payload?.officeId;
+        if (!officeId) return;
+
+        const activePositions = positionService.getActivePositionsForOffice(officeId);
+        const occupants = activePositions.filter(
+          (p) => p.userId !== userId && p.location && isInsideManagerCabin(p.location[0], p.location[1])
+        );
+
+        if (occupants.length >= 2) {
+          const officeSockets = await io.in(officeId).fetchSockets();
+          const occupantIds = new Set(occupants.map((o) => o.userId));
+          const occupantSockets = officeSockets.filter((s) => occupantIds.has(s.data.userId));
+
+          const knockPayload = {
+            requesterId: userId,
+            requesterName: socket.data.userName || 'Teammate',
+            timestamp: Date.now(),
+          };
+
+          occupantSockets.forEach((s) => {
+            s.emit('manager:knock_request', knockPayload);
+          });
+
+          socket.emit('manager:knock_sent', {
+            message: 'Knocked on the Manager Cabin door. Waiting for occupants to permit entry...',
+            occupantsCount: occupants.length,
+          });
+        } else {
+          // If fewer than 2 avatars are inside, room is open!
+          grantManagerPermission(officeId, userId);
+          socket.emit('manager:entry_approved', {
+            requesterId: userId,
+            approvedBy: 'Cabin is open',
+            autoOpen: true,
+          });
+        }
+      } catch (err) {
+        console.error('manager:knock error', err);
+      }
+    });
+
+    socket.on('manager:approve_entry', async (payload) => {
+      try {
+        const officeId = socket.data.officeId || payload?.officeId;
+        const requesterId = payload?.requesterId;
+        if (!officeId || !isValidUserId(requesterId)) return;
+
+        // Verify the approver is actually inside the Manager Cabin
+        const activePositions = positionService.getActivePositionsForOffice(officeId);
+        const approverPos = activePositions.find((p) => p.userId === userId);
+        if (!approverPos?.location || !isInsideManagerCabin(approverPos.location[0], approverPos.location[1])) {
+          return;
+        }
+
+        grantManagerPermission(officeId, requesterId);
+
+        const approvalPayload = {
+          requesterId,
+          approvedBy: socket.data.userName || 'Cabin Occupant',
+          timestamp: Date.now(),
+        };
+
+        io.to(officeId).emit('manager:entry_approved', approvalPayload);
+      } catch (err) {
+        console.error('manager:approve_entry error', err);
+      }
+    });
+
+    socket.on('manager:deny_entry', async (payload) => {
+      try {
+        const officeId = socket.data.officeId || payload?.officeId;
+        const requesterId = payload?.requesterId;
+        if (!officeId || !isValidUserId(requesterId)) return;
+
+        // Verify the denier is actually inside the Manager Cabin
+        const activePositions = positionService.getActivePositionsForOffice(officeId);
+        const denierPos = activePositions.find((p) => p.userId === userId);
+        if (!denierPos?.location || !isInsideManagerCabin(denierPos.location[0], denierPos.location[1])) {
+          return;
+        }
+
+        const denialPayload = {
+          requesterId,
+          deniedBy: socket.data.userName || 'Cabin Occupant',
+          timestamp: Date.now(),
+        };
+
+        io.to(`user_${requesterId}`).emit('manager:entry_denied', denialPayload);
+      } catch (err) {
+        console.error('manager:deny_entry error', err);
+      }
+    });
+
 
 function sanitizeHtmlText(str) {
   if (typeof str !== 'string') return '';

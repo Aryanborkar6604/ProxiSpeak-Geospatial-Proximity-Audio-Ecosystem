@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import deviceCache from '../utils/deviceCache';
+import { isInsideManagerCabin } from '../utils/officeBounds';
 
 const THROTTLE_MS = 1000 / 30; // 30Hz high-responsiveness move rate
 const AVATAR_COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899', '#14B8A6', '#F43F5E'];
@@ -20,6 +21,8 @@ export default function OfficeCanvas({
   isMuted = false,
   peerAttenuations = {},
   isDarkMode = true,
+  hasManagerPermission = false,
+  onBlockedManagerEntry,
 }) {
   const canvasRef = useRef(null);
   const peersRef = useRef({});
@@ -31,6 +34,10 @@ export default function OfficeCanvas({
   const lastEmitTime = useRef(0);
   const trailingMoveTimeout = useRef(null);
   const syncTimeoutRef = useRef(null);
+  const hasManagerPermissionRef = useRef(hasManagerPermission);
+  hasManagerPermissionRef.current = hasManagerPermission;
+  const onBlockedManagerEntryRef = useRef(onBlockedManagerEntry);
+  onBlockedManagerEntryRef.current = onBlockedManagerEntry;
 
   const [canvasSize, setCanvasSize] = useState({ width: officeState?.width || 1000, height: officeState?.height || 700 });
   
@@ -272,7 +279,19 @@ export default function OfficeCanvas({
 
       // 3. Architectural Room Floors & Customized Furniture
       drawMeetingZone(ctx, 325, 35, 350, 220, dark);
-      drawManagerZone(ctx, 705, 35, 260, 220, dark);
+
+      // Check Manager Cabin live occupancy
+      let managerOccupantsCount = 0;
+      if (isInsideManagerCabin(localPos.current.x, localPos.current.y)) {
+        managerOccupantsCount += 1;
+      }
+      Object.values(peersRef.current).forEach((p) => {
+        if (p && isInsideManagerCabin(p.x, p.y)) {
+          managerOccupantsCount += 1;
+        }
+      });
+      drawManagerZone(ctx, 705, 35, 260, 220, dark, managerOccupantsCount, hasManagerPermissionRef.current);
+
       drawHRZone(ctx, 35, 445, 260, 220, dark);
       drawWorkstationsZone(ctx, 325, 285, 350, 380, dark);
 
@@ -475,6 +494,27 @@ export default function OfficeCanvas({
       const pace = event.shiftKey ? 19 : 10;
       const nextX = Math.max(35, Math.min(localPos.current.x + direction[0] * pace, officeState.width - 35));
       const nextY = Math.max(35, Math.min(localPos.current.y + direction[1] * pace, officeState.height - 35));
+
+      // Manager Cabin 2-avatar capacity restriction:
+      // If 2 or more avatars are already inside, outside avatars cannot enter without permission.
+      const isCurrentlyInManager = isInsideManagerCabin(localPos.current.x, localPos.current.y);
+      const willBeInManager = isInsideManagerCabin(nextX, nextY);
+
+      if (!isCurrentlyInManager && willBeInManager) {
+        let peersInManagerCount = 0;
+        const occupantsInCabin = [];
+        Object.entries(peersRef.current).forEach(([peerId, peer]) => {
+          if (peer && isInsideManagerCabin(peer.x, peer.y)) {
+            peersInManagerCount += 1;
+            occupantsInCabin.push(peer.name || 'Teammate');
+          }
+        });
+
+        if (peersInManagerCount >= 2 && !hasManagerPermissionRef.current) {
+          onBlockedManagerEntryRef.current?.(occupantsInCabin);
+          return;
+        }
+      }
       
       // Spawn subtle footstep motes
       moveParticles.current.push({
@@ -514,6 +554,26 @@ export default function OfficeCanvas({
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width * officeState.width;
     const y = (event.clientY - rect.top) / rect.height * officeState.height;
+
+    // Manager Cabin 2-avatar capacity restriction:
+    const isCurrentlyInManager = isInsideManagerCabin(localPos.current.x, localPos.current.y);
+    const willBeInManager = isInsideManagerCabin(x, y);
+
+    if (!isCurrentlyInManager && willBeInManager) {
+      let peersInManagerCount = 0;
+      const occupantsInCabin = [];
+      Object.entries(peersRef.current).forEach(([peerId, peer]) => {
+        if (peer && isInsideManagerCabin(peer.x, peer.y)) {
+          peersInManagerCount += 1;
+          occupantsInCabin.push(peer.name || 'Teammate');
+        }
+      });
+
+      if (peersInManagerCount >= 2 && !hasManagerPermissionRef.current) {
+        onBlockedManagerEntryRef.current?.(occupantsInCabin);
+        return;
+      }
+    }
     
     // Spawn click ripple
     moveParticles.current.push({
@@ -950,7 +1010,7 @@ function drawWaterCredenza(ctx, x, y, w, h, isDark) {
 // -------------------------------------------------------------
 // 3. MANAGER CABIN (Executive L-Desk, High-Back Chair, Trophy Bookshelf)
 // -------------------------------------------------------------
-function drawManagerZone(ctx, x, y, w, h, isDark = true) {
+function drawManagerZone(ctx, x, y, w, h, isDark = true, occupancy = 0, hasPermission = false) {
   ctx.save();
 
   // Floor Base (Executive Dark Parquet / Charcoal Weave)
@@ -1006,8 +1066,38 @@ function drawManagerZone(ctx, x, y, w, h, isDark = true) {
   // Potted Ficus Plant
   drawPlant(ctx, x + w - 24, y + 36, isDark);
 
-  // Zone Label Badge
-  drawZoneBadge(ctx, x + 14, y + 20, '💼 MANAGER CABIN', 'Executive Suite · 0.15x Silent', isDark ? '#8B5CF6' : '#7C3AED', isDark);
+  // Zone Label Badge with Live 2-Avatar Capacity & Permission Status
+  if (occupancy >= 2) {
+    if (hasPermission) {
+      drawZoneBadge(ctx, x + 14, y + 20, '🔓 MANAGER CABIN (2/2)', 'Permission Granted · Step Inside', '#34D399', isDark);
+    } else {
+      drawZoneBadge(ctx, x + 14, y + 20, '🔒 MANAGER CABIN (2/2 LOCKED)', 'Private Session · Knock to Enter', '#EF4444', isDark);
+
+      // Draw Laser Security Barrier at both doorways
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+      ctx.shadowColor = '#EF4444';
+      ctx.shadowBlur = 8;
+      ctx.setLineDash([5, 4]);
+
+      // Left doorway: y 195 to 255 at x = 705
+      ctx.beginPath();
+      ctx.moveTo(705, 195);
+      ctx.lineTo(705, 255);
+      ctx.stroke();
+
+      // Bottom doorway: x 705 to 785 at y = 255
+      ctx.beginPath();
+      ctx.moveTo(705, 255);
+      ctx.lineTo(785, 255);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  } else {
+    drawZoneBadge(ctx, x + 14, y + 20, `💼 MANAGER CABIN (${occupancy}/2)`, 'Executive Suite · Open Access', isDark ? '#8B5CF6' : '#7C3AED', isDark);
+  }
 
   ctx.restore();
 }
