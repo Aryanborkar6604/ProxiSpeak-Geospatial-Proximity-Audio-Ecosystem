@@ -156,7 +156,10 @@ function App() {
     const source = context.createMediaStreamSource(stream), gain = context.createGain(), panner = context.createStereoPanner();
     source.connect(gain).connect(panner).connect(context.destination); spatialNodesRef.current.set(id, { source, gain, panner });
     const person = peers.find(item => item.id === id), current = meRef.current;
-    const distance = person && current ? Math.hypot(person.x - current.x, person.y - current.y) : RANGE;
+    // A signal can arrive just before the matching presence update. The server
+    // only signals peers already in earshot, so start audible and correct the
+    // gain as soon as their coordinates land in the presence state.
+    const distance = person && current ? Math.hypot(person.x - current.x, person.y - current.y) : 0;
     gain.gain.value = muted ? 0 : spatialGain(distance);
   }
   function attachSpatialAudio(id, stream) { remoteStreamsRef.current.set(id, stream); connectSpatialAudio(id, stream); }
@@ -179,7 +182,21 @@ function App() {
     try {
       let context = audioRef.current?.context;
       if (!context || context.state === 'closed') { context = new AudioContext(); audioRef.current = { ...audioRef.current, context }; }
-      if (typeof context.setSinkId === 'function') await context.setSinkId(audioOutputId);
+      if (typeof context.setSinkId === 'function' && audioOutputId) {
+        try { await context.setSinkId(audioOutputId); }
+        catch {
+          // Saved output IDs may expire when a speaker is unplugged or browser
+          // permissions rotate. Keep office audio working through system sound.
+          await context.setSinkId('');
+          setAudioOutputId('');
+          try { localStorage.removeItem('proxispeak.audioOutput'); } catch {}
+          setAudioOutputError('The saved speaker is unavailable, so office audio is using your system default. Choose the speaker again in Settings.');
+        }
+      } else if (audioOutputId && typeof context.setSinkId !== 'function') {
+        setAudioOutputId('');
+        try { localStorage.removeItem('proxispeak.audioOutput'); } catch {}
+        setAudioOutputError('This browser cannot route to the saved speaker. Office audio is using the system default.');
+      }
       if (context.state !== 'running') await context.resume();
       for (const [id, stream] of remoteStreamsRef.current) connectSpatialAudio(id, stream);
       setSoundReady(true); return true;
@@ -270,6 +287,7 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       audioRef.current = { ...audioRef.current, stream };
       await Promise.all([...peersRef.current.values()].map(pc => { const sender = pc.getTransceivers().find(t => t.receiver.track.kind === 'audio')?.sender; return sender?.replaceTrack(stream.getAudioTracks()[0]); }));
+      socketRef.current?.emit('speaking', { speaking: true });
       setMicOn(true); notify('Mic is on. Walk within 70 pixels of a teammate to chat.');
     } catch (err) { audioRef.current?.stream?.getTracks().forEach(track => track.stop()); notify(err?.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser settings.' : 'Could not start your microphone. Check that one is connected.'); }
   }
