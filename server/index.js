@@ -84,10 +84,17 @@ async function cluster(user) {
   return found.map(normalize);
 }
 async function publishPresence() {
+  // Send every live office member so clients can render avatars across the
+  // whole map. Keep the geospatial result separate for proximity audio.
+  const visiblePeers = [...users.values()];
   for (const user of users.values()) {
     try {
-      const peers = (await nearby(user)).filter(peer => peer.online !== false);
-      io.to(user.id).emit('presence', { peers, earshot: peers.map(peer => peer.id), officeId: OFFICE_ID });
+      const earshotPeers = (await nearby(user)).filter(peer => peer.online !== false && users.has(String(peer.id)));
+      const peers = visiblePeers.filter(peer => peer.id !== user.id).map(peer => ({
+        id: peer.id, name: peer.name, avatarUrl: peer.avatarUrl, role: peer.role,
+        color: peer.color, x: peer.x, y: peer.y, online: peer.online, speaking: peer.speaking,
+      }));
+      io.to(user.id).emit('presence', { peers, earshot: earshotPeers.map(peer => String(peer.id)), officeId: OFFICE_ID });
     } catch (err) { console.error('Presence query failed:', err.message); }
   }
 }
@@ -211,7 +218,8 @@ io.on('connection', socket => {
   const account = socket.data.account;
   const connected = accountSockets.get(account.id) || new Set(); connected.add(socket.id); accountSockets.set(account.id, connected);
   const user = { id: socket.id, accountId: account.id, name: account.name, email: account.email, avatarUrl: account.avatarUrl ?? null, role: 'In the office', color: '#6f986e', x: 485 + Math.random() * 60, y: 310 + Math.random() * 70, online: true, speaking: false };
-  users.set(user.id, user); socket.join(user.id); saveUser(user).catch(err => console.error('Could not persist new user:', err.message));
+  users.set(user.id, user); socket.join(user.id);
+  const savedUser = saveUser(user).catch(err => console.error('Could not persist new user:', err.message));
   socket.emit('welcome', { user, officeId: OFFICE_ID, earshot: EARSHOT });
   socket.on('move', async ({ x, y }) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -233,7 +241,7 @@ io.on('connection', socket => {
     io.to(target.id).emit('signal', { from: user.id, description, candidate });
   });
   socket.on('disconnect', async () => { users.delete(user.id); const openSockets = accountSockets.get(account.id); openSockets?.delete(socket.id); if (!openSockets?.size) accountSockets.delete(account.id); if (people) await people.deleteOne({ _id: user.id }); io.emit('user-left', user.id); await publishPresence(); });
-  publishPresence();
+  savedUser.then(publishPresence);
 });
 
 const mongoUri = process.env.MONGODB_URI;
