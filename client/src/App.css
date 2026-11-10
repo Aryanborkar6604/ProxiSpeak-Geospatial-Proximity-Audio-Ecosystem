@@ -252,24 +252,24 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
 }
 .app-shell.dark-theme {
   color-scheme: dark;
-  --page: #111813;
-  --surface: #19221b;
-  --surface-soft: #1d2820;
-  --surface-quiet: #212d24;
-  --ink: #eef3ed;
-  --ink-soft: #d4ddd4;
-  --muted: #a4b0a6;
-  --faint: #7f8e82;
-  --line: #2c392e;
-  --line-strong: #3b4b3d;
-  --brand: #98d0a1;
-  --brand-hover: #b5e1b2;
-  --brand-soft: #23372a;
-  --signal: #c9ed83;
-  --voice: #f0a17d;
-  --danger: #f2a39a;
-  --map-ground: #172019;
-  --shadow: 0 20px 48px rgba(0, 0, 0, .32), 0 2px 8px rgba(0, 0, 0, .2);
+  --page: #16100f;
+  --surface: #201715;
+  --surface-soft: #281e1a;
+  --surface-quiet: #302420;
+  --ink: #f8f7fc;
+  --ink-soft: #d5d0e2;
+  --muted: #a6a0b5;
+  --faint: #787285;
+  --line: rgba(235, 230, 248, 0.12);
+  --line-strong: rgba(235, 230, 248, 0.22);
+  --brand: #c4b5fd;
+  --brand-hover: #d8ceff;
+  --brand-soft: rgba(196, 181, 253, 0.16);
+  --signal: #d8ceff;
+  --voice: #f59e0b;
+  --danger: #f87171;
+  --map-ground: #1c1412;
+  --shadow: 0 20px 48px rgba(0, 0, 0, 0.45), 0 0 20px rgba(196, 181, 253, 0.1);
 }
 
 .brand-mark, .topbar-brand, .topbar-actions, .topbar-center, .office-switcher,
@@ -1691,15 +1691,15 @@ html:has(.login-shell), body:has(.login-shell), #root:has(.login-shell) { min-wi
   margin-top: 16px;
   padding: 13px 14px;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(0, 245, 155, 0.05), rgba(0, 210, 255, 0.03));
-  border: 1px solid rgba(0, 245, 155, 0.22);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), inset 0 0 20px rgba(0, 245, 155, 0.02);
+  background: linear-gradient(135deg, rgba(38, 28, 25, 0.85), rgba(28, 20, 18, 0.92));
+  border: 1px solid rgba(235, 230, 248, 0.16);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), inset 0 0 20px rgba(196, 181, 253, 0.04);
   backdrop-filter: blur(12px);
   transition: border-color .2s ease, box-shadow .2s ease;
 }
 .radar-hud-card:hover {
-  border-color: rgba(0, 245, 155, 0.4);
-  box-shadow: 0 6px 25px rgba(0, 245, 155, 0.12);
+  border-color: rgba(196, 181, 253, 0.35);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4), 0 0 16px rgba(196, 181, 253, 0.15);
 }
 
 .radar-hud-topline {
@@ -1713,14 +1713,14 @@ html:has(.login-shell), body:has(.login-shell), #root:has(.login-shell) { min-wi
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.12em;
-  color: #00F59B;
+  color: #c4b5fd;
 }
 .radar-live-beacon {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #00F59B;
-  box-shadow: 0 0 8px #00F59B;
+  background: #c4b5fd;
+  box-shadow: 0 0 8px #c4b5fd;
   animation: beacon-pulse 1.8s infinite ease-in-out;
 }
 @keyframes beacon-pulse {
@@ -1732,12 +1732,12 @@ html:has(.login-shell), body:has(.login-shell), #root:has(.login-shell) { min-wi
   margin-left: auto;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(0, 245, 155, 0.12);
-  border: 1px solid rgba(0, 245, 155, 0.3);
+  background: rgba(196, 181, 253, 0.12);
+  border: 1px solid rgba(196, 181, 253, 0.3);
   font-family: 'JetBrains Mono', monospace;
   font-size: 8px;
   font-weight: 700;
-  color: #00F59B;
+  color: #c4b5fd;
 }
 
 .radar-telemetry-body {
@@ -2039,13 +2039,13 @@ html:has(.login-shell), body:has(.login-shell), #root:has(.login-shell) { min-wi
     radial-gradient(ellipse at 12% 58%, rgba(145, 186, 166, .15), transparent 38%);
 }
 .app-shell.dark-theme {
-  --glass-surface: rgba(21, 37, 29, .76);
-  --glass-surface-strong: rgba(25, 43, 33, .88);
-  --glass-inset: rgba(8, 24, 18, .3);
-  --glass-edge: rgba(224, 244, 224, .18);
+  --glass-surface: rgba(32, 23, 21, 0.82);
+  --glass-surface-strong: rgba(42, 31, 28, 0.92);
+  --glass-inset: rgba(18, 12, 11, 0.5);
+  --glass-edge: rgba(235, 230, 248, 0.14);
   background-image:
-    radial-gradient(ellipse at 84% 14%, rgba(113, 167, 106, .15), transparent 34%),
-    radial-gradient(ellipse at 12% 58%, rgba(76, 133, 105, .12), transparent 38%);
+    radial-gradient(ellipse at 84% 14%, rgba(216, 206, 255, 0.08), transparent 38%),
+    radial-gradient(ellipse at 12% 58%, rgba(68, 50, 44, 0.15), transparent 42%);
 }
 .app-shell .topbar {
   border-color: var(--glass-edge);
@@ -2111,21 +2111,21 @@ html:has(.login-shell), body:has(.login-shell), #root:has(.login-shell) { min-wi
 .app-shell.dark-theme .office-card {
   border-color: var(--glass-edge);
   background: var(--glass-surface);
-  box-shadow: 0 24px 58px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(233, 246, 229, .08);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .app-shell.dark-theme .people-sidebar {
   border-color: var(--glass-edge);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(233, 246, 229, .08);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .app-shell.dark-theme .summary-icon,
-.app-shell.dark-theme .quiet-card-icon { background: rgba(152, 208, 161, .14); }
+.app-shell.dark-theme .quiet-card-icon { background: rgba(196, 181, 253, 0.14); color: #c4b5fd; }
 .app-shell.dark-theme .people-search { border-color: var(--glass-edge); }
 .app-shell.dark-theme .person-row:hover,
 .app-shell.dark-theme .person-row.is-speaking-row { background: var(--glass-inset); }
 .app-shell.dark-theme .control-dock {
   border-color: var(--glass-edge);
   background: var(--glass-surface-strong);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(233, 246, 229, .1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .login-shell {

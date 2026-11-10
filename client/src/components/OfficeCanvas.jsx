@@ -280,17 +280,20 @@ export default function OfficeCanvas({
       // 3. Architectural Room Floors & Customized Furniture
       drawMeetingZone(ctx, 325, 35, 350, 220, dark);
 
-      // Check Manager Cabin live occupancy
+      // Check Manager Cabin live occupancy and names
       let managerOccupantsCount = 0;
+      const managerOccupantNames = [];
       if (isInsideManagerCabin(localPos.current.x, localPos.current.y)) {
         managerOccupantsCount += 1;
+        managerOccupantNames.push('You');
       }
       Object.values(peersRef.current).forEach((p) => {
         if (p && isInsideManagerCabin(p.x, p.y)) {
           managerOccupantsCount += 1;
+          managerOccupantNames.push(p.name?.trim()?.split(/\s+/)[0] || 'Teammate');
         }
       });
-      drawManagerZone(ctx, 705, 35, 260, 220, dark, managerOccupantsCount, hasManagerPermissionRef.current);
+      drawManagerZone(ctx, 705, 35, 260, 220, dark, managerOccupantsCount, hasManagerPermissionRef.current, managerOccupantNames);
 
       drawHRZone(ctx, 35, 445, 260, 220, dark);
       drawWorkstationsZone(ctx, 325, 285, 350, 380, dark);
@@ -1010,7 +1013,7 @@ function drawWaterCredenza(ctx, x, y, w, h, isDark) {
 // -------------------------------------------------------------
 // 3. MANAGER CABIN (Executive L-Desk, High-Back Chair, Trophy Bookshelf)
 // -------------------------------------------------------------
-function drawManagerZone(ctx, x, y, w, h, isDark = true, occupancy = 0, hasPermission = false) {
+function drawManagerZone(ctx, x, y, w, h, isDark = true, occupancy = 0, hasPermission = false, occupantNames = []) {
   ctx.save();
 
   // Floor Base (Executive Dark Parquet / Charcoal Weave)
@@ -1068,10 +1071,11 @@ function drawManagerZone(ctx, x, y, w, h, isDark = true, occupancy = 0, hasPermi
 
   // Zone Label Badge with Live 2-Avatar Capacity & Permission Status
   if (occupancy >= 2) {
+    const occupantsLabel = occupantNames.length > 0 ? occupantNames.slice(0, 2).join(' & ') : 'Private Session';
     if (hasPermission) {
-      drawZoneBadge(ctx, x + 14, y + 20, '🔓 MANAGER CABIN (2/2)', 'Permission Granted · Step Inside', '#34D399', isDark);
+      drawZoneBadge(ctx, x + 14, y + 20, '🔓 MANAGER CABIN (2/2)', `Access Granted · With ${occupantsLabel}`, '#34D399', isDark);
     } else {
-      drawZoneBadge(ctx, x + 14, y + 20, '🔒 MANAGER CABIN (2/2 LOCKED)', 'Private Session · Knock to Enter', '#EF4444', isDark);
+      drawZoneBadge(ctx, x + 14, y + 20, '🔒 MANAGER CABIN (2/2 LOCKED)', `Meeting: ${occupantsLabel} · Knock to Enter`, '#EF4444', isDark);
 
       // Draw Laser Security Barrier at both doorways
       ctx.save();

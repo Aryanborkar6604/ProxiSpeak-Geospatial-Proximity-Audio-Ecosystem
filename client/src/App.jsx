@@ -523,6 +523,34 @@ function App() {
     });
   }, [handleKnockManagerDoor]);
 
+  const wasInsideManagerRef = useRef(false);
+  useEffect(() => {
+    const isInside = isInsideManagerCabin(localCoords.x, localCoords.y);
+    if (isInside) {
+      wasInsideManagerRef.current = true;
+    } else if (wasInsideManagerRef.current && !isInside) {
+      wasInsideManagerRef.current = false;
+      if (hasManagerPermission) {
+        setHasManagerPermission(false);
+        toast.info('You left the Manager Cabin. Re-entry requires approval if full.');
+      }
+    }
+  }, [localCoords, hasManagerPermission]);
+
+  useEffect(() => {
+    const handleKeyDownKnock = (e) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'k' || e.key === 'K') {
+        if (managerBlockedInfo && !hasManagerPermission && !isKnocking) {
+          e.preventDefault();
+          handleKnockManagerDoor();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDownKnock);
+    return () => window.removeEventListener('keydown', handleKeyDownKnock);
+  }, [managerBlockedInfo, hasManagerPermission, isKnocking, handleKnockManagerDoor]);
+
   const closestPeerInfo = useMemo(() => {
     const peerEntries = Object.entries(peers);
     if (peerEntries.length === 0) return null;
