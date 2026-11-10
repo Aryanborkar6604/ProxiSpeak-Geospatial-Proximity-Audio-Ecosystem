@@ -21,6 +21,15 @@ import {
   Compass
 } from 'lucide-react';
 
+export const STATUS_PRESETS = [
+  { id: 'available', emoji: '🟢', label: 'Available', hint: 'Free to chat' },
+  { id: 'focus', emoji: '🎧', label: 'Deep Focus', hint: 'Focused work - do not disturb' },
+  { id: 'coffee', emoji: '☕', label: 'Coffee Break', hint: 'Grabbing coffee / away briefly' },
+  { id: 'away', emoji: '⏳', label: 'Stepped Away', hint: 'Be right back' },
+  { id: 'brainstorming', emoji: '💡', label: 'Brainstorm', hint: 'Open to bouncing ideas' },
+  { id: 'meeting', emoji: '🚪', label: 'In Meeting', hint: 'In a session' },
+];
+
 export default function SlidableWorkspaceMenu({
   isOpen,
   onToggle,
@@ -46,6 +55,8 @@ export default function SlidableWorkspaceMenu({
   onLogout,
   closestPeerInfo,
   micPermissionState = 'prompt',
+  myStatus = { emoji: '🟢', text: 'Available' },
+  onStatusChange = () => {},
 }) {
   const [activeTab, setActiveTab] = useState('live'); // 'live' | 'chat' | 'tools'
   const [search, setSearch] = useState('');
@@ -225,6 +236,39 @@ export default function SlidableWorkspaceMenu({
           </button>
         </div>
 
+        {/* Presence & Activity Status Selector */}
+        <div className="drawer-status-panel">
+          <div className="drawer-status-header">
+            <div className="drawer-status-current-badge">
+              <span className="current-status-emoji">{myStatus?.emoji || '🟢'}</span>
+              <div className="current-status-copy">
+                <span className="current-status-sub">MY PRESENCE</span>
+                <span className="current-status-label">{myStatus?.text || 'Available'}</span>
+              </div>
+            </div>
+            <span className="status-live-sync-tag">LIVE BROADCAST</span>
+          </div>
+          <div className="drawer-status-chips" role="radiogroup" aria-label="Set your office status">
+            {STATUS_PRESETS.map((preset) => {
+              const isSelected = (myStatus?.emoji === preset.emoji);
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`status-chip-btn ${isSelected ? 'is-chip-active' : ''}`}
+                  onClick={() => onStatusChange(preset.emoji, preset.label)}
+                  title={preset.hint}
+                  aria-checked={isSelected}
+                  role="radio"
+                >
+                  <span className="chip-emoji">{preset.emoji}</span>
+                  <span className="chip-label">{preset.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Segmented Nav Tabs */}
         <div className="drawer-nav-tabs">
           <button 
@@ -325,9 +369,15 @@ export default function SlidableWorkspaceMenu({
 
                     <div className="live-user-details">
                       <div className="live-user-top">
-                        <strong className="live-user-name">
-                          {person.name} {person.self && <span className="self-tag">(You)</span>}
-                        </strong>
+                        <div className="live-user-name-row">
+                          <strong className="live-user-name">
+                            {person.name} {person.self && <span className="self-tag">(You)</span>}
+                          </strong>
+                          <span className="live-user-status-tag" title={person.statusText || 'Available'}>
+                            <span className="tag-emoji">{person.statusEmoji || '🟢'}</span>
+                            <span className="tag-text">{person.statusText || 'Available'}</span>
+                          </span>
+                        </div>
                         <span className="live-dist-badge">{distText}</span>
                       </div>
                       <div className="live-user-sub">

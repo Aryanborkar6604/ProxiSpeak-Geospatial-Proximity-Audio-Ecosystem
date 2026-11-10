@@ -186,6 +186,11 @@ function App() {
   const [incomingKnock, setIncomingKnock] = useState(null);
   const [isKnocking, setIsKnocking] = useState(false);
   const [managerBlockedInfo, setManagerBlockedInfo] = useState(null);
+  const [myStatus, setMyStatus] = useState(() => ({
+    emoji: (typeof window !== 'undefined' && localStorage.getItem('proxi_status_emoji')) || '🟢',
+    text: (typeof window !== 'undefined' && localStorage.getItem('proxi_status_text')) || 'Available',
+  }));
+  const [peerStatuses, setPeerStatuses] = useState({});
 
   useEffect(() => {
     document.body.classList.toggle('server-busy', serverBusy);
@@ -288,20 +293,46 @@ function App() {
     const nextSocket = io(SOCKET_BASE_URL, { auth: { token } });
     nextSocket.on('connect', () => {
       const cachedPos = deviceCache.loadPosition(currentOfficeId, userId);
+      const savedEmoji = (typeof window !== 'undefined' && localStorage.getItem('proxi_status_emoji')) || '🟢';
+      const savedText = (typeof window !== 'undefined' && localStorage.getItem('proxi_status_text')) || 'Available';
       nextSocket.emit('office:join', {
         officeId: currentOfficeId,
         preferredPosition: cachedPos ? { x: cachedPos.x, y: cachedPos.y } : localCoords,
+        status: { emoji: savedEmoji, text: savedText },
       });
     });
     nextSocket.on('office:state', (state) => {
       setOfficeState(state);
       deviceCache.saveOffice(currentOfficeId, state);
+      if (state.users) {
+        const statuses = {};
+        state.users.forEach((u) => {
+          if (u.userId) {
+            statuses[u.userId] = {
+              emoji: u.statusEmoji || '🟢',
+              text: u.statusText || 'Available',
+            };
+          }
+        });
+        setPeerStatuses((prev) => ({ ...prev, ...statuses }));
+      }
       const me = state.users?.find((u) => u.userId === userId);
       if (me && me.location) {
         const myX = me.location[0];
         const myY = me.location[1];
         setLocalCoords({ x: myX, y: myY });
         deviceCache.savePosition(currentOfficeId, userId, { x: myX, y: myY });
+      }
+    });
+    nextSocket.on('player:status_changed', (data) => {
+      if (data?.userId) {
+        setPeerStatuses((prev) => ({
+          ...prev,
+          [data.userId]: {
+            emoji: data.statusEmoji || '🟢',
+            text: data.statusText || 'Available',
+          },
+        }));
       }
     });
     nextSocket.on('office:updated', (updated) => {
@@ -605,17 +636,38 @@ function App() {
     }
   };
 
+  const handleStatusChange = useCallback((emoji, text) => {
+    setMyStatus({ emoji, text });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('proxi_status_emoji', emoji);
+      localStorage.setItem('proxi_status_text', text);
+    }
+    if (socket) {
+      socket.emit('player:status', { emoji, text });
+    }
+    toast.success(`Status updated: ${emoji} ${text}`);
+  }, [socket]);
+
   const people = useMemo(() => {
-    const self = userId ? [{ id: userId, name: userName || 'You', self: true, position: null }] : [];
+    const self = userId ? [{
+      id: userId,
+      name: userName || 'You',
+      self: true,
+      position: null,
+      statusEmoji: myStatus?.emoji || '🟢',
+      statusText: myStatus?.text || 'Available',
+    }] : [];
     return [
       ...self,
       ...Object.entries(peers).map(([id, position]) => ({
         id,
         name: position.name || `Guest ${id.slice(-4)}`,
         position,
+        statusEmoji: peerStatuses[id]?.emoji || '🟢',
+        statusText: peerStatuses[id]?.text || 'Available',
       })),
     ];
-  }, [peers, userId, userName]);
+  }, [peers, userId, userName, myStatus, peerStatuses]);
   const visiblePeople = people.filter((person) => person.name.toLowerCase().includes(search.toLowerCase()));
 
   if (token && authChecking) {
@@ -900,6 +952,8 @@ function App() {
         onLogout={logout}
         closestPeerInfo={closestPeerInfo}
         micPermissionState={micPermissionState}
+        myStatus={myStatus}
+        onStatusChange={handleStatusChange}
       />
 
       <div className="workspace-layout">
@@ -1101,6 +1155,8 @@ function App() {
                 isDarkMode={isDarkMode}
                 hasManagerPermission={hasManagerPermission}
                 onBlockedManagerEntry={handleBlockedManagerEntry}
+                myStatus={myStatus}
+                peerStatuses={peerStatuses}
               />
             </div>
             <div className="map-bottomline">

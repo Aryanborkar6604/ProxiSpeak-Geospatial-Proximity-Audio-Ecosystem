@@ -80,6 +80,24 @@ function grantManagerPermission(officeId, uid, durationMs = 15 * 60 * 1000) {
   managerCabinPermissions.get(officeId).set(uid, Date.now() + durationMs);
 }
 
+// In-memory storage for user status & presence: officeId -> Map<userId, { emoji, text, updatedAt }>
+const officeUserStatuses = new Map();
+
+function getUserStatus(officeId, uid) {
+  return officeUserStatuses.get(officeId)?.get(uid) || { emoji: '🟢', text: 'Available' };
+}
+
+function setUserStatus(officeId, uid, emoji, text) {
+  if (!officeUserStatuses.has(officeId)) {
+    officeUserStatuses.set(officeId, new Map());
+  }
+  officeUserStatuses.get(officeId).set(uid, { emoji, text, updatedAt: Date.now() });
+}
+
+function removeUserStatus(officeId, uid) {
+  officeUserStatuses.get(officeId)?.delete(uid);
+}
+
 async function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
   const officeId = socket.data.officeId;
   if (!officeId || !arePeersSignalingEligible(socket.data.userId, targetUserId, officeId)) return;
@@ -160,14 +178,30 @@ function socketHandler(io) {
         );
         namesByUserId.set(userId, socket.data.userName || `User ${String(userId).slice(-4)}`);
 
+        // Record initial status if supplied by joining client
+        if (payload?.status?.emoji && payload?.status?.text) {
+          setUserStatus(
+            officeId,
+            userId,
+            String(payload.status.emoji).slice(0, 8),
+            String(payload.status.text).slice(0, 60)
+          );
+        }
+
         // Get all online positions from fast in-memory store (no DB roundtrip)
         const memoryPositions = positionService.getActivePositionsForOffice(officeId);
+        const officeStatuses = officeUserStatuses.get(officeId);
         const liveUsers = memoryPositions
           .filter((user) => activeUserIdsInOffice.has(user.userId))
-          .map((user) => ({
-            ...(user.toObject ? user.toObject() : user),
-            name: namesByUserId.get(user.userId) || 'Teammate',
-          }));
+          .map((user) => {
+            const userStat = officeStatuses?.get(user.userId) || { emoji: '🟢', text: 'Available' };
+            return {
+              ...(user.toObject ? user.toObject() : user),
+              name: namesByUserId.get(user.userId) || 'Teammate',
+              statusEmoji: userStat.emoji,
+              statusText: userStat.text,
+            };
+          });
 
         socket.emit('office:state', {
           officeId: office.officeId,
@@ -411,6 +445,28 @@ function sanitizeHtmlText(str) {
       }
     });
 
+    // Avatar activity & presence status signaling
+    socket.on('player:status', (payload) => {
+      try {
+        if (!allowSocketEvent(socket, 'player:status', { windowMs: 10_000, max: 20 })) return;
+        const officeId = socket.data.officeId;
+        if (!officeId) return;
+
+        const emoji = typeof payload?.emoji === 'string' ? payload.emoji.trim().slice(0, 8) : '🟢';
+        const text = typeof payload?.text === 'string' ? payload.text.trim().slice(0, 60) : 'Available';
+
+        setUserStatus(officeId, userId, emoji, text);
+
+        io.to(officeId).emit('player:status_changed', {
+          userId,
+          statusEmoji: emoji,
+          statusText: text,
+        });
+      } catch (err) {
+        console.error('player:status error', err);
+      }
+    });
+
     socket.on('webrtc:offer', async (payload) => {
       const targetUserId = payload?.toUserId;
       if (!isValidUserId(targetUserId) ||
@@ -454,6 +510,7 @@ function sanitizeHtmlText(str) {
         cleanupUser(userId);
         await positionService.markOffline(userId);
         if (socket.data.officeId) {
+          removeUserStatus(socket.data.officeId, userId);
           io.to(socket.data.officeId).emit('player:left', { userId });
         }
       }

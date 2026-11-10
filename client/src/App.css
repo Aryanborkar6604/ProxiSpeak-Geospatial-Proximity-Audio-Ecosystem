@@ -2659,6 +2659,158 @@ body.server-busy * { cursor: progress !important; }
   color: var(--ink);
 }
 
+/* Presence & Activity Status Selector */
+.drawer-status-panel {
+  padding: 12px 16px 14px;
+  background: var(--surface-quiet);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drawer-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-status-current-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.current-status-emoji {
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.current-status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.current-status-sub {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.current-status-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  font-family: 'Space Grotesk', 'DM Sans', sans-serif;
+}
+
+.status-live-sync-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #c4b5fd;
+  background: rgba(196, 181, 253, 0.12);
+  border: 1px solid rgba(196, 181, 253, 0.28);
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+
+.drawer-status-chips {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.status-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-chip-btn:hover {
+  background: var(--surface-soft);
+  border-color: rgba(196, 181, 253, 0.4);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.status-chip-btn.is-chip-active {
+  background: rgba(196, 181, 253, 0.16);
+  border-color: #c4b5fd;
+  color: #c4b5fd;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(196, 181, 253, 0.2);
+}
+
+.status-chip-btn .chip-emoji {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.status-chip-btn .chip-label {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Teammate List Status Tag */
+.live-user-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.live-user-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(196, 181, 253, 0.12);
+  border: 1px solid rgba(196, 181, 253, 0.25);
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+.live-user-status-tag .tag-emoji {
+  font-size: 10px;
+}
+
+.live-user-status-tag .tag-text {
+  max-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Segmented Nav Tabs */
 .drawer-nav-tabs {
   display: flex;

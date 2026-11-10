@@ -23,10 +23,14 @@ export default function OfficeCanvas({
   isDarkMode = true,
   hasManagerPermission = false,
   onBlockedManagerEntry,
+  myStatus = { emoji: '🟢', text: 'Available' },
+  peerStatuses = {},
 }) {
   const canvasRef = useRef(null);
   const peersRef = useRef({});
   const interpolatedPeers = useRef({}); // 60 FPS smooth linear interpolation coordinates
+  const statusRef = useRef({ myStatus, peerStatuses });
+  statusRef.current = { myStatus, peerStatuses };
   const localPos = useRef(
     deviceCache.loadPosition(officeState?.officeId, localUserId) || { x: 175, y: 335 }
   );
@@ -461,7 +465,8 @@ export default function OfficeCanvas({
       drawHearingHorizon(ctx, localX, localY, officeState?.hearingRadiusPx || 100, dark);
 
       // 10. Draw Avatars (Local & Remote with 60 FPS LERP)
-      drawAvatar(ctx, localX, localY, '#00F59B', 'YOU', true, curAudio.isSpeaking, false, curAudio.isMuted, 1.0, dark);
+      const myEmoji = statusRef.current.myStatus?.emoji || '🟢';
+      drawAvatar(ctx, localX, localY, '#00F59B', 'YOU', true, curAudio.isSpeaking, false, curAudio.isMuted, 1.0, dark, myEmoji);
 
       const getAvatarColor = (id) => {
         let hash = 0;
@@ -476,7 +481,8 @@ export default function OfficeCanvas({
         const isPeerMuted = Boolean(curAudio.mutedPeers[peerId]);
         const peerAtt = curAudio.peerAttenuations[peerId] ?? 1.0;
         const avatarLabel = point.name?.trim().split(/\s+/)[0] || labelFor(index);
-        drawAvatar(ctx, interp.x, interp.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark);
+        const peerEmoji = statusRef.current.peerStatuses?.[peerId]?.emoji || '🟢';
+        drawAvatar(ctx, interp.x, interp.y, getAvatarColor(peerId), avatarLabel, false, isPeerSpeaking, isPeerNearby, isPeerMuted, peerAtt, dark, peerEmoji);
       });
 
       ctx.restore();
@@ -1931,7 +1937,7 @@ function drawHearingHorizon(ctx, x, y, radius, isDark) {
   ctx.restore();
 }
 
-function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking, isNearby, isMuted, attenuation, isDark) {
+function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking, isNearby, isMuted, attenuation, isDark, statusEmoji = '🟢') {
   const isMuffled = attenuation < 0.9;
   ctx.save();
 
@@ -2013,6 +2019,33 @@ function drawAvatar(ctx, x, y, color, label, isLocal, isSpeaking, isNearby, isMu
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(isLocal ? 'YOU' : label.slice(0, 2).toUpperCase(), x, y + 0.5);
+
+  // 6.5 Status Presence Badge (top-right of avatar disc)
+  if (statusEmoji) {
+    ctx.save();
+    const badgeX = x + 11.5;
+    const badgeY = y - 11.5;
+    const badgeR = 7.5;
+
+    ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.2)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = isDark ? '#201715' : '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = isDark ? 'rgba(196, 181, 253, 0.55)' : 'rgba(196, 181, 253, 0.85)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.font = '9px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(statusEmoji, badgeX, badgeY + 0.5);
+    ctx.restore();
+  }
 
   // 7. Sleek Glassmorphic Label Pill
   const pillW = isMuffled ? 78 : 64;

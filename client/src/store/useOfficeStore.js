@@ -9,6 +9,19 @@ export const useOfficeStore = create((set, get) => ({
   // Theme
   isDarkMode: typeof window !== 'undefined' ? (localStorage.getItem('theme') === 'dark') : false,
 
+  // User Presence & Activity Status
+  myStatus: {
+    emoji: typeof window !== 'undefined' ? (localStorage.getItem('proxi_status_emoji') || '🟢') : '🟢',
+    text: typeof window !== 'undefined' ? (localStorage.getItem('proxi_status_text') || 'Available') : 'Available',
+  },
+  peerStatuses: {}, // { [userId]: { emoji: string, text: string } }
+
+  // Manager Cabin Knock & Access Permissions
+  hasManagerPermission: false,
+  isKnocking: false,
+  incomingKnock: null, // { requesterId, requesterName, timestamp }
+  managerBlockedInfo: null, // { message, occupants, count }
+
   // Office & Spatial State
   officeState: {
     officeId: 'main-office',
@@ -71,5 +84,34 @@ export const useOfficeStore = create((set, get) => ({
   setIsSpeaking: (isSpeaking) => set({ isSpeaking }),
   setLocalVolume: (localVolume) => set({ localVolume }),
   setConnectionState: (connectionState) => set({ connectionState }),
+
+  // Status Presence Actions
+  setMyStatus: (emoji, text) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('proxi_status_emoji', emoji);
+      localStorage.setItem('proxi_status_text', text);
+    }
+    set({ myStatus: { emoji, text } });
+  },
+
+  setPeerStatus: (userId, emoji, text) => set((state) => ({
+    peerStatuses: {
+      ...state.peerStatuses,
+      [userId]: { emoji, text },
+    },
+  })),
+
+  setPeerStatuses: (statuses) => set((state) => ({
+    peerStatuses: {
+      ...state.peerStatuses,
+      ...statuses,
+    },
+  })),
+
+  // Manager Cabin Knock & Access Actions
+  setHasManagerPermission: (hasManagerPermission) => set({ hasManagerPermission }),
+  setIsKnocking: (isKnocking) => set({ isKnocking }),
+  setIncomingKnock: (incomingKnock) => set({ incomingKnock }),
+  setManagerBlockedInfo: (managerBlockedInfo) => set({ managerBlockedInfo }),
 }));
 
