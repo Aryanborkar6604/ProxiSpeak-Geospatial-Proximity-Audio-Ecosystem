@@ -1,0 +1,135 @@
+const mongoose = require('mongoose');
+const Office = require('../models/Office');
+
+// In-memory cache for office layouts
+const officeCache = new Map();
+const MAX_CACHED_OFFICES = 1000;
+
+const DEFAULT_OBSTACLES = [
+  // Meeting Room Bottom Partition (center conference doorway at x: 460-540)
+  { type: 'wall', x1: 325, y1: 255, x2: 460, y2: 255, attenuation: 0.20 },
+  { type: 'wall', x1: 540, y1: 255, x2: 675, y2: 255, attenuation: 0.20 },
+  // Meeting Room Side Partitions
+  { type: 'wall', x1: 325, y1: 35, x2: 325, y2: 200, attenuation: 0.20 },
+  { type: 'wall', x1: 675, y1: 35, x2: 675, y2: 200, attenuation: 0.20 },
+
+  // Manager Cabin Left Partition (leaves doorway at y: 195-255)
+  { type: 'wall', x1: 705, y1: 35, x2: 705, y2: 195, attenuation: 0.15 },
+  // Manager Cabin Bottom Partition (doorway at x: 705-785)
+  { type: 'wall', x1: 785, y1: 255, x2: 965, y2: 255, attenuation: 0.15 },
+
+  // HR Cabin Top Partition (doorway at x: 215-295)
+  { type: 'wall', x1: 35, y1: 445, x2: 215, y2: 445, attenuation: 0.20 },
+  // HR Cabin Right Partition (doorway at y: 445-495)
+  { type: 'wall', x1: 295, y1: 495, x2: 295, y2: 665, attenuation: 0.20 },
+];
+
+const DEFAULT_ZONES = [
+  { name: 'MEETING ROOM', shape: 'rect', x: 325, y: 35, w: 350, h: 220 },
+  { name: 'MANAGER CABIN', shape: 'rect', x: 705, y: 35, w: 260, h: 220 },
+  { name: 'WORKSTATIONS', shape: 'rect', x: 325, y: 285, w: 350, h: 380 },
+  { name: 'HR CABIN', shape: 'rect', x: 35, y: 445, w: 260, h: 220 },
+];
+const OFFICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function makeDefaultOffice(officeId) {
+  return {
+    officeId,
+    name: officeId === 'main-office' ? 'The Commons' : `Office ${officeId}`,
+    width: 1000,
+    height: 700,
+    hearingRadiusPx: 100,
+    obstacles: DEFAULT_OBSTACLES,
+    zones: DEFAULT_ZONES,
+  };
+
+}
+
+function cacheOffice(officeId, office) {
+  officeCache.delete(officeId);
+  officeCache.set(officeId, office);
+  if (officeCache.size > MAX_CACHED_OFFICES) {
+    const oldestOfficeId = officeCache.keys().next().value;
+    officeCache.delete(oldestOfficeId);
+  }
+}
+
+async function getOffice(officeId) {
+  if (typeof officeId !== 'string' || !OFFICE_ID_PATTERN.test(officeId)) return null;
+  if (officeCache.has(officeId)) {
+    return officeCache.get(officeId);
+  }
+
+  const defaultOffice = makeDefaultOffice(officeId);
+
+  if (mongoose.connection.readyState !== 1) {
+    cacheOffice(officeId, defaultOffice);
+    return defaultOffice;
+  }
+
+  let office = await Office.findOne({ officeId }).catch((error) => {
+    throw error;
+  });
+  if (!office) {
+    if (officeId === 'main-office') {
+      office = new Office(defaultOffice);
+      await office.save().catch((err) => console.warn('Office seed save warning:', err.message));
+    } else {
+      // Custom offices are virtual until an administrator explicitly persists their layout.
+      cacheOffice(officeId, defaultOffice);
+      return defaultOffice;
+    }
+  } else if (officeId === 'main-office' || !office.obstacles || office.obstacles.length === 0) {
+    office.obstacles = DEFAULT_OBSTACLES;
+    office.zones = DEFAULT_ZONES;
+    office.name = defaultOffice.name;
+    await office.save().catch(() => {});
+  }
+
+  const plainOffice = office.toObject ? office.toObject() : office;
+  cacheOffice(officeId, plainOffice);
+  return plainOffice;
+}
+
+async function updateOffice(officeId, data) {
+  const allowed = ['name', 'obstacles', 'zones', 'width', 'height', 'hearingRadiusPx'];
+  const updatePayload = {};
+  for (const key of allowed) {
+    if (data[key] !== undefined) {
+      updatePayload[key] = data[key];
+    }
+  }
+
+  const nextOffice = {
+    ...makeDefaultOffice(officeId),
+    ...officeCache.get(officeId),
+    ...updatePayload,
+  };
+  cacheOffice(officeId, nextOffice);
+
+  if (mongoose.connection.readyState !== 1) {
+    return nextOffice;
+  }
+
+  const updated = await Office.findOneAndUpdate(
+    { officeId },
+    { $set: updatePayload },
+    { new: true, upsert: true }
+  );
+
+  const plain = updated.toObject ? updated.toObject() : updated;
+  cacheOffice(officeId, plain);
+  return plain;
+}
+
+function getCachedOffice(officeId) {
+  return officeCache.get(officeId) || null;
+}
+
+module.exports = {
+  getOffice,
+  updateOffice,
+  getCachedOffice,
+  DEFAULT_OBSTACLES,
+};
+
