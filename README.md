@@ -12,9 +12,13 @@ A single shared virtual office for the Infotact team. The React app draws an ove
 
 Microphone access requires `localhost` or HTTPS. The sample map occupants are illustrative only and are not connected audio peers. The default STUN server is suitable for development, but restrictive networks may require TURN; set `VITE_ICE_SERVERS` in `.env` to a JSON array supplied by your ICE/TURN provider. Production TURN credentials should be short-lived. For a remotely hosted app, use HTTPS/WSS and restrict the allowed client origin.
 
+## Security
+
+Passwords are stored as salted scrypt hashes. Session cookies are HttpOnly and SameSite, sessions expire after 12 hours (7 days with **Remember me**), and login/registration attempts are rate limited per IP. Auth mutations and Socket.io handshakes reject foreign origins; responses include basic browser security headers; request body and Socket.io payload sizes are capped. Profile and office APIs require a valid session. In production, the server requires an HTTPS client origin and MongoDB, which avoids using the development JSON account store. Keep `.env` private and use HTTPS end to end. The current rate limiter and sessions are in-memory and per server process; a multi-instance deployment needs shared session storage and a distributed rate limiter.
+
 ## MongoDB
 
-When configured, the server stores accounts and people in MongoDB, creates a GeoJSON `2dsphere` index, uses `$near` to filter earshot membership, and uses `$geoWithin`/`$centerSphere` for the cluster endpoint. Existing local-file accounts are copied into MongoDB when it connects. Office pixel coordinates are projected into a small GeoJSON range at approximately one meter per pixel. All participants share the `OFFICE_ID` configured in `.env`.
+When configured, the server stores accounts and people in MongoDB and creates a GeoJSON `2dsphere` index. Live movement and earshot presence are coalesced and calculated from the connected-user map for responsive updates; positions are persisted at a lower rate. The authenticated `/api/office/nearby` diagnostic uses MongoDB `$near`, and `/api/office/cluster` uses `$geoWithin`/`$centerSphere`. Existing local-file accounts are copied into MongoDB when it connects. Office pixel coordinates are projected into a small GeoJSON range at approximately one meter per pixel. All participants share the `OFFICE_ID` configured in `.env`.
 
 ## Project layout
 
