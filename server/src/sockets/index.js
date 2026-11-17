@@ -98,14 +98,15 @@ function removeUserStatus(officeId, uid) {
   officeUserStatuses.get(officeId)?.delete(uid);
 }
 
-async function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
+// In-memory mapping of active user offices for zero-latency O(1) signaling verification
+const activeUserOffices = new Map();
+
+function relayToNearbyPeer(io, socket, targetUserId, eventName, payload) {
   const officeId = socket.data.officeId;
   if (!officeId || !arePeersSignalingEligible(socket.data.userId, targetUserId, officeId)) return;
+  if (activeUserOffices.get(targetUserId) !== officeId) return;
 
-  const userSockets = await io.in(`user_${targetUserId}`).fetchSockets();
-  userSockets
-    .filter((targetSocket) => targetSocket.data.officeId === officeId)
-    .forEach((targetSocket) => targetSocket.emit(eventName, payload));
+  io.to(`user_${targetUserId}`).emit(eventName, payload);
 }
 
 
@@ -137,6 +138,7 @@ function socketHandler(io) {
 
         socket.join(officeId);
         socket.data.officeId = officeId;
+        activeUserOffices.set(userId, officeId);
 
         // Honor client device-cached position if valid and in-bounds, or fallback to saved cloud position / default
         const prefX = payload?.preferredPosition?.x;
@@ -231,6 +233,15 @@ function socketHandler(io) {
 
         const office = officeService.getCachedOffice(officeId);
         if (!office || x < 0 || y < 0 || x > office.width || y > office.height) return;
+
+        // Skip micro-jitter (< 0.25px delta) to prevent unnecessary network broadcasts
+        if (socket.data.lastX !== undefined && socket.data.lastY !== undefined) {
+          const dx = socket.data.lastX - x;
+          const dy = socket.data.lastY - y;
+          if (dx * dx + dy * dy < 0.0625) return;
+        }
+        socket.data.lastX = x;
+        socket.data.lastY = y;
 
         // Check Manager Cabin capacity restriction:
         // If 2 or more avatars are already inside, outside avatars cannot enter without permission.
@@ -507,6 +518,7 @@ function sanitizeHtmlText(str) {
       clearTimeout(sessionExpiryTimer);
       console.log(`User disconnected: ${userId}`);
       if (userId) {
+        activeUserOffices.delete(userId);
         cleanupUser(userId);
         await positionService.markOffline(userId);
         if (socket.data.officeId) {

@@ -44,13 +44,33 @@ function lineSegmentsIntersect(p1x, p1y, p2x, p2y, q1x, q1y, q2x, q2y) {
 // Compute total attenuation factor from obstacles crossing line of sight
 function computeObstacleAttenuation(p1, p2, obstacles = []) {
   if (!obstacles || obstacles.length === 0) return 1.0;
+  const p1x = p1[0];
+  const p1y = p1[1];
+  const p2x = p2[0];
+  const p2y = p2[1];
+
+  const minX = p1x < p2x ? p1x : p2x;
+  const maxX = p1x > p2x ? p1x : p2x;
+  const minY = p1y < p2y ? p1y : p2y;
+  const maxY = p1y > p2y ? p1y : p2y;
+
   let factor = 1.0;
-  for (const obs of obstacles) {
-    if (obs.x1 !== undefined && obs.y1 !== undefined && obs.x2 !== undefined && obs.y2 !== undefined) {
-      if (lineSegmentsIntersect(p1[0], p1[1], p2[0], p2[1], obs.x1, obs.y1, obs.x2, obs.y2)) {
-        const wallAtt = typeof obs.attenuation === 'number' ? obs.attenuation : 0.25;
-        factor *= wallAtt;
-      }
+  for (let i = 0; i < obstacles.length; i += 1) {
+    const obs = obstacles[i];
+    if (obs.x1 === undefined || obs.y1 === undefined || obs.x2 === undefined || obs.y2 === undefined) continue;
+
+    // Fast Axis-Aligned Bounding Box (AABB) rejection check
+    const obsMinX = obs._minX !== undefined ? obs._minX : (obs.x1 < obs.x2 ? obs.x1 : obs.x2);
+    const obsMaxX = obs._maxX !== undefined ? obs._maxX : (obs.x1 > obs.x2 ? obs.x1 : obs.x2);
+    if (maxX < obsMinX || minX > obsMaxX) continue;
+
+    const obsMinY = obs._minY !== undefined ? obs._minY : (obs.y1 < obs.y2 ? obs.y1 : obs.y2);
+    const obsMaxY = obs._maxY !== undefined ? obs._maxY : (obs.y1 > obs.y2 ? obs.y1 : obs.y2);
+    if (maxY < obsMinY || minY > obsMaxY) continue;
+
+    if (lineSegmentsIntersect(p1x, p1y, p2x, p2y, obs.x1, obs.y1, obs.x2, obs.y2)) {
+      const wallAtt = typeof obs.attenuation === 'number' ? obs.attenuation : 0.25;
+      factor *= wallAtt;
     }
   }
   return Math.max(0.05, Math.min(1.0, factor));
@@ -123,8 +143,10 @@ function recomputeProximity(io) {
       const obstacles = office?.obstacles || officeService.DEFAULT_OBSTACLES;
       const hearingRadius = office?.hearingRadiusPx || constants.HEARING_RADIUS_PX;
       const spatialIndex = createSpatialIndex(users, hearingRadius);
+      const pairAttenuations = new Map();
 
-      for (const user of users) {
+      for (let i = 0; i < users.length; i += 1) {
+        const user = users[i];
         const { userId, location } = user;
         if (!location || location.length < 2) continue;
         const [x1, y1] = location;
@@ -132,7 +154,10 @@ function recomputeProximity(io) {
         const inRangeUsers = spatialIndex.nearby(x1, y1, hearingRadius)
           .filter((other) => other.userId !== userId);
 
-        const currentSet = new Set(inRangeUsers.map((u) => u.userId));
+        const currentSet = new Set();
+        for (let j = 0; j < inRangeUsers.length; j += 1) {
+          currentSet.add(inRangeUsers[j].userId);
+        }
         const prevSet = previousProximitySets.get(userId) || new Set();
 
         if (!previousAttenuations.has(userId)) {
@@ -140,11 +165,18 @@ function recomputeProximity(io) {
         }
         const userAttenuations = previousAttenuations.get(userId);
 
-        // Calculate obstacle attenuation for all in-range peers
+        // Calculate obstacle attenuation for all in-range peers with symmetric pair caching
         const currentAttenuations = {};
-        for (const peer of inRangeUsers) {
-          const att = computeObstacleAttenuation(location, peer.location, obstacles);
-          currentAttenuations[peer.userId] = att;
+        for (let j = 0; j < inRangeUsers.length; j += 1) {
+          const peer = inRangeUsers[j];
+          const peerId = peer.userId;
+          const pairKey = userId < peerId ? `${userId}:${peerId}` : `${peerId}:${userId}`;
+          let att = pairAttenuations.get(pairKey);
+          if (att === undefined) {
+            att = computeObstacleAttenuation(location, peer.location, obstacles);
+            pairAttenuations.set(pairKey, att);
+          }
+          currentAttenuations[peerId] = att;
         }
 
         // Mesh Scaling Telemetry: Check if approaching or exceeding mesh cap (10-12 peers)
@@ -163,34 +195,42 @@ function recomputeProximity(io) {
           meshTelemetry.maxConnectionsObserved = currentSet.size;
         }
 
-        const entered = [...currentSet].filter((x) => !prevSet.has(x));
-        const exited = [...prevSet].filter((x) => !currentSet.has(x));
+        // Fast zero-spread set diffs
+        const entered = [];
+        for (const id of currentSet) {
+          if (!prevSet.has(id)) entered.push(id);
+        }
+        const exited = [];
+        for (const id of prevSet) {
+          if (!currentSet.has(id)) exited.push(id);
+        }
 
-        entered.forEach((peerId) => {
+        for (let j = 0; j < entered.length; j += 1) {
+          const peerId = entered[j];
           const att = currentAttenuations[peerId] ?? 1.0;
           io.to(`user_${userId}`).emit('peer:enter-range', { userId: peerId, attenuation: att });
           userAttenuations[peerId] = att;
-        });
+        }
 
         // Check if attenuation changed for peers that remained in range (e.g. walked behind a wall)
-        [...currentSet].forEach((peerId) => {
-          if (!entered.includes(peerId)) {
-            const currentAtt = currentAttenuations[peerId] ?? 1.0;
-            const prevAtt = userAttenuations[peerId] ?? 1.0;
-            if (Math.abs(currentAtt - prevAtt) > 0.05) {
-              io.to(`user_${userId}`).emit('peer:attenuation-changed', {
-                userId: peerId,
-                attenuation: currentAtt,
-              });
-              userAttenuations[peerId] = currentAtt;
-            }
+        for (const peerId of currentSet) {
+          if (!prevSet.has(peerId)) continue; // skip newly entered
+          const currentAtt = currentAttenuations[peerId] ?? 1.0;
+          const prevAtt = userAttenuations[peerId] ?? 1.0;
+          if (Math.abs(currentAtt - prevAtt) > 0.05) {
+            io.to(`user_${userId}`).emit('peer:attenuation-changed', {
+              userId: peerId,
+              attenuation: currentAtt,
+            });
+            userAttenuations[peerId] = currentAtt;
           }
-        });
+        }
 
-        exited.forEach((peerId) => {
+        for (let j = 0; j < exited.length; j += 1) {
+          const peerId = exited[j];
           io.to(`user_${userId}`).emit('peer:exit-range', { userId: peerId });
           delete userAttenuations[peerId];
-        });
+        }
 
         previousProximitySets.set(userId, currentSet);
       }

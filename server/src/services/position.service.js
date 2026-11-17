@@ -2,11 +2,24 @@ const mongoose = require('mongoose');
 const Position = require('../models/Position');
 const constants = require('../config/constants');
 
-// High-speed in-memory active position cache
+// High-speed dual in-memory active position cache (O(1) user and office lookup)
 const activePositions = new Map();
+const activePositionsByOffice = new Map(); // officeId -> Map<userId, position>
 const persistenceStates = new Map();
 
 async function updatePosition(userId, officeId, x, y) {
+  const prev = activePositions.get(userId);
+  // Micro-jitter deduplication: skip redundant persistence scheduling if change < 0.25px
+  if (
+    prev &&
+    prev.officeId === officeId &&
+    prev.isOnline &&
+    Math.abs(prev.location[0] - x) < 0.25 &&
+    Math.abs(prev.location[1] - y) < 0.25
+  ) {
+    return prev;
+  }
+
   const nextPosition = {
     userId,
     officeId,
@@ -15,6 +28,17 @@ async function updatePosition(userId, officeId, x, y) {
   };
 
   activePositions.set(userId, nextPosition);
+
+  // Maintain per-office index for zero-cost room filtering
+  if (prev && prev.officeId !== officeId) {
+    activePositionsByOffice.get(prev.officeId)?.delete(userId);
+  }
+  let officeMap = activePositionsByOffice.get(officeId);
+  if (!officeMap) {
+    officeMap = new Map();
+    activePositionsByOffice.set(officeId, officeMap);
+  }
+  officeMap.set(userId, nextPosition);
 
   if (mongoose.connection.readyState !== 1) {
     return nextPosition;
@@ -72,9 +96,11 @@ async function persistPendingPosition(userId, state) {
 }
 
 function getActivePositionsForOffice(officeId) {
+  const officeMap = activePositionsByOffice.get(officeId);
+  if (!officeMap) return [];
   const results = [];
-  for (const pos of activePositions.values()) {
-    if (pos.officeId === officeId && pos.isOnline) {
+  for (const pos of officeMap.values()) {
+    if (pos.isOnline) {
       results.push(pos);
     }
   }
@@ -82,25 +108,39 @@ function getActivePositionsForOffice(officeId) {
 }
 
 function cachePositions(positions) {
-  for (const position of positions) {
+  for (let i = 0; i < positions.length; i += 1) {
+    const position = positions[i];
     const plain = position.toObject ? position.toObject() : position;
-    activePositions.set(plain.userId, {
+    const item = {
       userId: plain.userId,
       officeId: plain.officeId,
       location: plain.location,
       isOnline: plain.isOnline,
-    });
+    };
+    activePositions.set(plain.userId, item);
+    let officeMap = activePositionsByOffice.get(plain.officeId);
+    if (!officeMap) {
+      officeMap = new Map();
+      activePositionsByOffice.set(plain.officeId, officeMap);
+    }
+    officeMap.set(plain.userId, item);
   }
   return positions;
 }
 
 function getAllActivePositions() {
-  return Array.from(activePositions.values()).filter((p) => p.isOnline);
+  const results = [];
+  for (const p of activePositions.values()) {
+    if (p.isOnline) results.push(p);
+  }
+  return results;
 }
 
 async function markOffline(userId) {
-  if (activePositions.has(userId)) {
-    activePositions.get(userId).isOnline = false;
+  const existing = activePositions.get(userId);
+  if (existing) {
+    existing.isOnline = false;
+    activePositionsByOffice.get(existing.officeId)?.delete(userId);
   }
 
   const persistenceState = persistenceStates.get(userId);

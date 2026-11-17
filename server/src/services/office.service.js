@@ -22,7 +22,13 @@ const DEFAULT_OBSTACLES = [
   { type: 'wall', x1: 35, y1: 445, x2: 215, y2: 445, attenuation: 0.20 },
   // HR Cabin Right Partition (doorway at y: 445-495)
   { type: 'wall', x1: 295, y1: 495, x2: 295, y2: 665, attenuation: 0.20 },
-];
+].map((obs) => ({
+  ...obs,
+  _minX: Math.min(obs.x1, obs.x2),
+  _maxX: Math.max(obs.x1, obs.x2),
+  _minY: Math.min(obs.y1, obs.y2),
+  _maxY: Math.max(obs.y1, obs.y2),
+}));
 
 const DEFAULT_ZONES = [
   { name: 'MEETING ROOM', shape: 'rect', x: 325, y: 35, w: 350, h: 220 },

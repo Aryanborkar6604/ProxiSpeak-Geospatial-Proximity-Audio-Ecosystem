@@ -54,9 +54,18 @@ async function startServer() {
   };
 
   const server = http.createServer(app);
+  // Tune TCP Keep-Alive to prevent socket thrashing and align with reverse proxies (e.g. ALB, Cloudflare, Render)
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+
   const io = new Server(server, {
     cors: corsOptions,
     maxHttpBufferSize: 128 * 1024,
+    pingTimeout: 20000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling'],
+    // Disabling zlib perMessageDeflate for high-frequency small WebRTC/spatial packets saves massive CPU cycles
+    perMessageDeflate: false,
     allowRequest(req, callback) {
       callback(null, originAllowed(req.headers.origin));
     }
@@ -135,7 +144,16 @@ async function startServer() {
   const clientBuildPath = path.resolve(__dirname, '../../client/dist');
   const clientEntryPath = path.join(clientBuildPath, 'index.html');
   if (fs.existsSync(clientEntryPath)) {
-    app.use(express.static(clientBuildPath, { index: false }));
+    // Cache static immutable assets (JS/CSS/images) to eliminate repeat network downloads
+    app.use(express.static(clientBuildPath, {
+      index: false,
+      maxAge: env.NODE_ENV === 'production' ? '1y' : '1h',
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    }));
     app.get(/.*/, (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
       return res.sendFile(clientEntryPath);
