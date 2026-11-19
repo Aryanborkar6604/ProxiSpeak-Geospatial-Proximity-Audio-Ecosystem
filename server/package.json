@@ -1,8 +1,8 @@
 {
-  "name": "server",
+  "name": "proxispeak-server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "ProxiSpeak - proximity-based voice collaboration (backend)",
+  "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "test": "node tests/obstacle.test.js && node tests/auth.test.js && node tests/rtc.test.js && node tests/position-geo.test.js && node tests/spatial-index.test.js && node tests/manager-cabin-access.test.js && node tests/player-status.test.js && node tests/performance.test.js",
@@ -26,19 +26,5 @@
   },
   "devDependencies": {
     "socket.io-client": "^4.8.4"
-  "name": "proxispeak-server",
-  "version": "1.0.0",
-  "description": "ProxiSpeak - proximity-based voice collaboration (backend)",
-  "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "mongoose": "^8.5.0",
-    "socket.io": "^4.7.5"
   }
 }
